@@ -1,0 +1,26 @@
+{
+  "name": "vacumify-mcp",
+  "version": "1.0.0",
+  "description": "Model Context Protocol (MCP) server for Vacumify — Fast, local-first storage cleaner and duplicate finder for AI agents (Claude Code, Cursor, Antigravity, VS Code)",
+  "main": "bin/vacumify-mcp.js",
+  "bin": {
+    "vacumify-mcp": "./bin/vacumify-mcp.js"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "vacumify",
+    "disk-cleaner",
+    "duplicate-finder",
+    "storage",
+    "claude",
+    "cursor",
+    "ai-agent"
+  ],
+  "author": "kuroi17",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kuroi17/Vacumify.git"
+  }
+}
