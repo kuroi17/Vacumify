@@ -12,9 +12,10 @@ Vacumify operates 100% locally: zero telemetry, zero cloud uploads, no backgroun
    - Filter files by inactivity threshold (7, 15, 30, 60, or 90 days).
    - Instant "Select all" and "Deselect all" helper controls.
 
-2. **2-Phase Duplicate Finder**:
-   - **Fast Pre-check**: Groups files by exact byte size, then checks a fast 4 KB partial hash.
-   - **Full Verification**: Only candidate files sharing identical partial hashes undergo full SHA-256 streaming hashing.
+2. **High-Speed Hybrid Duplicate Finder**:
+   - **Parallel Traversal & Pre-check**: Multi-core directory traversal, exact byte-size grouping, and a fast 1 KB prefix hash.
+   - **Hybrid Verification**: Full SHA-256 verification for files $\le$ 16 MB, and distributed 8-point (512 KB) SHA-256 fingerprinting for files $>$ 16 MB (with an option for full-file SHA-256 on all sizes).
+   - **Flexible Scope**: Toggle **Include hidden & dev caches** (`.*`) for deep scans and customize **Duplicate min size** (`100 KB+` default).
    - **Smart Selection**: One-click actions to **"Keep newest in each group"** or **"Keep oldest in each group"**.
    - Displays clear Group IDs and matching copy counts.
 

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.IO;
 using System.Security.Cryptography;
@@ -12,7 +13,7 @@ public sealed class FileEntry : INotifyPropertyChanged
     public required DateTime LastAccessUtc { get; init; }
     public required DateTime LastWriteUtc { get; init; }
     public string? Hash { get; set; }
-    public string? QuickSig { get; set; }
+    internal string? QuickSig { get; set; }
     public int DuplicateGroupId { get; set; }
     public int DuplicateGroupCount { get; set; }
 
@@ -50,6 +51,12 @@ public sealed class FileEntry : INotifyPropertyChanged
     }
 }
 
+public sealed record ScanOptions(
+    bool IncludeHiddenCaches = false,
+    long MinDuplicateBytes = 100L * 1024,
+    bool FastLargeFileSampling = true
+);
+
 public sealed record ScanProgress(long Files, long Bytes, string CurrentPath, string Stage = "Scanning");
 
 public sealed record ScanResult(
@@ -61,6 +68,8 @@ public sealed record ScanResult(
 
 public static class Scanner
 {
+    private const long LargeFileFullHashThreshold = 16L * 1024 * 1024;
+
     private static readonly string[] ProtectedRoots =
     [
         Environment.GetFolderPath(Environment.SpecialFolder.Windows),
@@ -71,33 +80,59 @@ public static class Scanner
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)
     ];
 
-    private static readonly HashSet<string> ExcludedFolderNames = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> AlwaysExcludedFolders = new(StringComparer.OrdinalIgnoreCase)
     {
         "AppData",
         "$Recycle.Bin",
         "System Volume Information",
         "node_modules",
         ".git",
-        ".gemini",
         ".vs"
     };
 
-    public static async Task<ScanResult> ScanAsync(IEnumerable<string> roots, IProgress<ScanProgress>? progress, CancellationToken token)
+    public static async Task<ScanResult> ScanAsync(
+        IEnumerable<string> roots,
+        ScanOptions options,
+        IProgress<ScanProgress>? progress,
+        CancellationToken token)
     {
         await Task.Yield();
 
-        var files = new List<FileEntry>(64000);
-        var errors = new List<string>();
-        var seenDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        long bytes = 0, count = 0;
+        var errors = new ConcurrentQueue<string>();
+        var seenDirectories = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
+        var dirQueue = new ConcurrentQueue<string>();
 
-        var canonicalRoots = roots.Select(r =>
+        var canonicalRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string rawRoot in roots)
         {
-            try { return Path.GetFullPath(r).TrimEnd(Path.DirectorySeparatorChar); }
-            catch { return r; }
-        }).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                string full = Path.GetFullPath(rawRoot).TrimEnd(Path.DirectorySeparatorChar);
+                if (!IsProtectedRoot(full) && seenDirectories.TryAdd(full, 0))
+                {
+                    canonicalRoots.Add(full);
+                    dirQueue.Enqueue(full);
+                }
+            }
+            catch (Exception ex)
+            {
+                errors.Enqueue($"{rawRoot}: {ex.Message}");
+            }
+        }
 
-        var pending = new Queue<string>(canonicalRoots);
+        if (dirQueue.IsEmpty)
+        {
+            return new ScanResult([], [.. errors], 0, 0);
+        }
+
+        // 1. Parallel Batched Directory Traversal
+        var fileBags = new ConcurrentBag<List<FileEntry>>();
+        int pendingDirs = dirQueue.Count;
+        using var semaphore = new SemaphoreSlim(pendingDirs);
+        int workerCount = Math.Clamp(Environment.ProcessorCount, 4, 8);
+
+        long totalFiles = 0;
+        long totalBytes = 0;
         long lastReportTick = Environment.TickCount64;
 
         var enumerationOptions = new EnumerationOptions
@@ -107,104 +142,128 @@ public static class Scanner
             AttributesToSkip = FileAttributes.ReparsePoint
         };
 
-        // 1. High-Performance Batched Directory Traversal
-        while (pending.Count > 0)
+        var workers = Enumerable.Range(0, workerCount).Select(_ => Task.Run(async () =>
         {
-            token.ThrowIfCancellationRequested();
-            string directory = pending.Dequeue();
-            string canonical;
-            try
+            var localFiles = new List<FileEntry>(4096);
+            while (!token.IsCancellationRequested)
             {
-                canonical = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar);
-            }
-            catch (Exception ex)
-            {
-                errors.Add($"{directory}: {ex.Message}");
-                continue;
-            }
-
-            if (!seenDirectories.Add(canonical)) continue;
-            if (ShouldSkipDirectory(canonical, canonicalRoots)) continue;
-
-            DirectoryInfo dirInfo;
-            try
-            {
-                dirInfo = new DirectoryInfo(canonical);
-                if (!dirInfo.Exists) continue;
-            }
-            catch (Exception ex)
-            {
-                errors.Add($"{canonical}: {ex.Message}");
-                continue;
-            }
-
-            try
-            {
-                foreach (var fsi in dirInfo.EnumerateFileSystemInfos("*", enumerationOptions))
+                try
                 {
-                    token.ThrowIfCancellationRequested();
-                    try
+                    await semaphore.WaitAsync(token);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+
+                if (!dirQueue.TryDequeue(out string? canonical))
+                {
+                    break;
+                }
+
+                long dirFiles = 0;
+                long dirBytes = 0;
+                string? samplePath = null;
+
+                try
+                {
+                    var dirInfo = new DirectoryInfo(canonical);
+                    if (dirInfo.Exists)
                     {
-                        if (fsi.Attributes.HasFlag(FileAttributes.Directory))
+                        foreach (var fsi in dirInfo.EnumerateFileSystemInfos("*", enumerationOptions))
                         {
-                            string dirName = fsi.Name;
-                            if (!canonicalRoots.Contains(fsi.FullName))
+                            token.ThrowIfCancellationRequested();
+                            try
                             {
-                                // Skip system folders, node_modules, and hidden development dot-caches (.cursor, .gradle, .gemini, etc.)
-                                if (ExcludedFolderNames.Contains(dirName) || dirName.StartsWith('.'))
+                                if (fsi.Attributes.HasFlag(FileAttributes.Directory))
                                 {
-                                    continue;
+                                    string childPath = fsi.FullName.TrimEnd(Path.DirectorySeparatorChar);
+                                    if (!ShouldSkipDirectory(childPath, fsi.Name, canonicalRoots, options.IncludeHiddenCaches)
+                                        && seenDirectories.TryAdd(childPath, 0))
+                                    {
+                                        Interlocked.Increment(ref pendingDirs);
+                                        dirQueue.Enqueue(childPath);
+                                        semaphore.Release();
+                                    }
+                                }
+                                else if (fsi is FileInfo fileInfo)
+                                {
+                                    long size = fileInfo.Length;
+                                    localFiles.Add(new FileEntry
+                                    {
+                                        Path = fileInfo.FullName,
+                                        Name = fileInfo.Name,
+                                        Size = size,
+                                        LastAccessUtc = fileInfo.LastAccessTimeUtc,
+                                        LastWriteUtc = fileInfo.LastWriteTimeUtc
+                                    });
+                                    dirFiles++;
+                                    dirBytes += size;
+                                    samplePath = fileInfo.FullName;
                                 }
                             }
-                            pending.Enqueue(fsi.FullName);
-                        }
-                        else if (fsi is FileInfo fileInfo)
-                        {
-                            var file = new FileEntry
+                            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException or ArgumentException)
                             {
-                                Path = fileInfo.FullName,
-                                Name = fileInfo.Name,
-                                Size = fileInfo.Length,
-                                LastAccessUtc = fileInfo.LastAccessTimeUtc,
-                                LastWriteUtc = fileInfo.LastWriteTimeUtc
-                            };
-
-                            files.Add(file);
-                            count++;
-                            bytes += fileInfo.Length;
-
-                            long now = Environment.TickCount64;
-                            if (now - lastReportTick >= 80)
-                            {
-                                lastReportTick = now;
-                                progress?.Report(new ScanProgress(count, bytes, fileInfo.FullName, "Discovering files"));
+                                errors.Enqueue($"{fsi.FullName}: {ex.Message}");
                             }
                         }
                     }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException or ArgumentException)
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+                {
+                    errors.Enqueue($"{canonical}: {ex.Message}");
+                }
+                finally
+                {
+                    if (dirFiles > 0)
                     {
-                        errors.Add($"{fsi.FullName}: {ex.Message}");
+                        long countSnap = Interlocked.Add(ref totalFiles, dirFiles);
+                        long bytesSnap = Interlocked.Add(ref totalBytes, dirBytes);
+                        long now = Environment.TickCount64;
+                        long prev = Volatile.Read(ref lastReportTick);
+                        if (now - prev >= 80 && Interlocked.CompareExchange(ref lastReportTick, now, prev) == prev)
+                        {
+                            progress?.Report(new ScanProgress(countSnap, bytesSnap, samplePath ?? canonical, "Discovering files"));
+                        }
+                    }
+
+                    if (Interlocked.Decrement(ref pendingDirs) == 0)
+                    {
+                        semaphore.Release(workerCount);
                     }
                 }
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+
+            if (localFiles.Count > 0)
             {
-                errors.Add($"{canonical}: {ex.Message}");
+                fileBags.Add(localFiles);
             }
+        })).ToArray();
+
+        await Task.WhenAll(workers);
+        token.ThrowIfCancellationRequested();
+
+        var files = new List<FileEntry>((int)Math.Min(totalFiles, int.MaxValue));
+        foreach (var bag in fileBags)
+        {
+            files.AddRange(bag);
         }
 
-        // 2. High-Speed 3-Stage Concurrency Duplicate Engine (Goal: < 10 seconds)
-        progress?.Report(new ScanProgress(count, bytes, "Grouping identical file sizes…", "Candidate analysis"));
+        // 2. High-Speed Hybrid Duplicate Detection
+        progress?.Report(new ScanProgress(totalFiles, totalBytes, "Grouping identical file sizes…", "Analyzing candidates"));
 
-        // Only files >= 1024 bytes (1 KB) with exact matching size
-        var sizeGroups = files.Where(f => f.Size >= 1024)
+        long minDupSize = Math.Max(1L, options.MinDuplicateBytes);
+        var candidates = files.Where(f => f.Size >= minDupSize)
                               .GroupBy(f => f.Size)
                               .Where(g => g.Count() > 1)
+                              .SelectMany(g => g)
                               .ToList();
 
-        var candidates = sizeGroups.SelectMany(g => g).ToList();
         int totalCandidates = candidates.Count;
-
         if (totalCandidates > 0)
         {
             var parallelOptions = new ParallelOptions
@@ -213,7 +272,7 @@ public static class Scanner
                 CancellationToken = token
             };
 
-            // Stage A: Lightning-fast 1 KB Prefix Check (Sequential sector read, zero seek)
+            // Stage A: Fast 1 KB Prefix Check (Sequential sector read, zero seek)
             long prefixProcessed = 0;
             await Parallel.ForEachAsync(candidates, parallelOptions, async (file, ct) =>
             {
@@ -229,115 +288,116 @@ public static class Scanner
                         Options = FileOptions.SequentialScan
                     });
 
-                    int read = await fs.ReadAsync(buf.AsMemory(0, 1024), ct);
+                    if (fs.Length != file.Size) return;
+                    int read = await fs.ReadAtLeastAsync(buf, 1024, throwOnEndOfStream: false, ct);
                     file.QuickSig = Convert.ToHexString(SHA256.HashData(buf.AsSpan(0, read)));
-                    if (file.Size <= 1024) file.Hash = file.QuickSig;
+                    if (file.Size <= 1024)
+                    {
+                        file.Hash = file.QuickSig;
+                    }
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
                 {
-                    lock (errors) { errors.Add($"Prefix check skipped: {file.Path}: {ex.Message}"); }
+                    errors.Enqueue($"Prefix check skipped: {file.Path}: {ex.Message}");
                 }
 
                 long processed = Interlocked.Increment(ref prefixProcessed);
                 long now = Environment.TickCount64;
-                if (now - lastReportTick >= 80)
+                long prev = Volatile.Read(ref lastReportTick);
+                if (now - prev >= 80 && Interlocked.CompareExchange(ref lastReportTick, now, prev) == prev)
                 {
-                    lastReportTick = now;
-                    progress?.Report(new ScanProgress(count, bytes, $"Quick signature check ({processed:N0}/{totalCandidates:N0})", "Signature check"));
+                    progress?.Report(new ScanProgress(totalFiles, totalBytes, $"Quick signature check ({processed:N0}/{totalCandidates:N0})", "Signature check"));
                 }
             });
 
-            // Group by (Size, PrefixSig)
-            var prefixMatches = candidates.Where(f => f.QuickSig is not null)
-                                          .GroupBy(f => (f.Size, f.QuickSig!))
-                                          .Where(g => g.Count() > 1)
-                                          .ToList();
+            // Stage B: Full SHA-256 (<= 16 MB or Strict Mode) or 8-Point Distributed SHA-256 (> 16 MB in Fast Mode)
+            var needsVerify = candidates.Where(f => f.QuickSig is not null && f.Size > 1024)
+                                        .GroupBy(f => (f.Size, f.QuickSig!))
+                                        .Where(g => g.Count() > 1)
+                                        .SelectMany(g => g)
+                                        .ToList();
 
-            // Stage B: 1 KB Suffix (Tail) Check ONLY for matching prefix candidates > 2048 bytes
-            var needsTail = prefixMatches.Where(g => g.Key.Size > 2048).SelectMany(g => g).ToList();
-            if (needsTail.Count > 0)
+            if (needsVerify.Count > 0)
             {
-                await Parallel.ForEachAsync(needsTail, parallelOptions, async (file, ct) =>
+                long verifyProcessed = 0;
+                int totalVerify = needsVerify.Count;
+
+                await Parallel.ForEachAsync(needsVerify, parallelOptions, async (file, ct) =>
                 {
                     try
                     {
-                        byte[] buf = new byte[1024];
+                        bool useSampledHash = options.FastLargeFileSampling && file.Size > LargeFileFullHashThreshold;
                         await using var fs = new FileStream(file.Path, new FileStreamOptions
                         {
                             Mode = FileMode.Open,
                             Access = FileAccess.Read,
                             Share = FileShare.ReadWrite | FileShare.Delete,
-                            BufferSize = 1024,
-                            Options = FileOptions.RandomAccess
+                            BufferSize = useSampledHash ? 64 * 1024 : 128 * 1024,
+                            Options = useSampledHash ? FileOptions.RandomAccess : FileOptions.SequentialScan
                         });
 
-                        fs.Seek(-1024, SeekOrigin.End);
-                        int read = await fs.ReadAsync(buf.AsMemory(0, 1024), ct);
-                        file.QuickSig += Convert.ToHexString(SHA256.HashData(buf.AsSpan(0, read)));
-                    }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
-                    {
-                        lock (errors) { errors.Add($"Tail check skipped: {file.Path}: {ex.Message}"); }
-                    }
-                });
-            }
-
-            // Stage C: Full SHA-256 Verification ONLY for candidates matching Size + Prefix + Tail
-            var confirmedCandidates = candidates.Where(f => f.QuickSig is not null)
-                                                .GroupBy(f => (f.Size, f.QuickSig!))
-                                                .Where(g => g.Count() > 1)
-                                                .ToList();
-
-            var needsFullHash = confirmedCandidates.Where(g => g.Key.Size > 2048).SelectMany(g => g).ToList();
-            if (needsFullHash.Count > 0)
-            {
-                long fullProcessed = 0;
-                int totalFull = needsFullHash.Count;
-
-                await Parallel.ForEachAsync(needsFullHash, parallelOptions, async (file, ct) =>
-                {
-                    try
-                    {
-                        await using var fs = new FileStream(file.Path, new FileStreamOptions
+                        if (fs.Length != file.Size) return;
+                        if (!useSampledHash)
                         {
-                            Mode = FileMode.Open,
-                            Access = FileAccess.Read,
-                            Share = FileShare.ReadWrite | FileShare.Delete,
-                            BufferSize = 128 * 1024,
-                            Options = FileOptions.SequentialScan
-                        });
+                            file.Hash = Convert.ToHexString(await SHA256.HashDataAsync(fs, ct));
+                        }
+                        else
+                        {
+                            const int chunk = 64 * 1024;
+                            const int samples = 8;
+                            byte[] buf = new byte[chunk * samples];
+                            long step = (file.Size - chunk) / (samples - 1);
+                            int offset = 0;
 
-                        file.Hash = Convert.ToHexString(await SHA256.HashDataAsync(fs, ct));
+                            for (int k = 0; k < samples; k++)
+                            {
+                                fs.Seek(k == samples - 1 ? file.Size - chunk : k * step, SeekOrigin.Begin);
+                                int read = await fs.ReadAtLeastAsync(buf.AsMemory(offset, chunk), chunk, throwOnEndOfStream: false, ct);
+                                offset += read;
+                            }
+
+                            file.Hash = Convert.ToHexString(SHA256.HashData(buf.AsSpan(0, offset)));
+                        }
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
                     {
-                        lock (errors) { errors.Add($"Full verification skipped: {file.Path}: {ex.Message}"); }
+                        errors.Enqueue($"Verification skipped: {file.Path}: {ex.Message}");
                     }
 
-                    long processed = Interlocked.Increment(ref fullProcessed);
+                    long processed = Interlocked.Increment(ref verifyProcessed);
                     long now = Environment.TickCount64;
-                    if (now - lastReportTick >= 80)
+                    long prev = Volatile.Read(ref lastReportTick);
+                    if (now - prev >= 80 && Interlocked.CompareExchange(ref lastReportTick, now, prev) == prev)
                     {
-                        lastReportTick = now;
-                        progress?.Report(new ScanProgress(count, bytes, $"Verifying full content ({processed:N0}/{totalFull:N0})", "Full verification"));
+                        progress?.Report(new ScanProgress(totalFiles, totalBytes, $"Verifying duplicates: {file.Name} ({processed:N0}/{totalVerify:N0})", "Verifying duplicates"));
                     }
                 });
             }
         }
 
-        // 3. Duplicate grouping & reclaimable space calculation
+        // 3. Duplicate Grouping & Reclaimable Space Calculation
+        long reclaimableBytes = AssignDuplicateGroups(files);
+
+        progress?.Report(new ScanProgress(totalFiles, totalBytes, "Ready", "Complete"));
+        return new ScanResult(files, [.. errors], totalBytes, reclaimableBytes);
+    }
+
+    public static long AssignDuplicateGroups(IEnumerable<FileEntry> files)
+    {
         int groupId = 1;
         long reclaimableBytes = 0;
-        var duplicateGroups = files.Where(f => f.Hash is not null)
-                                   .GroupBy(f => f.Hash!, StringComparer.Ordinal)
-                                   .Where(g => g.Count() > 1)
-                                   .ToList();
+        var all = files as IList<FileEntry> ?? files.ToList();
 
-        foreach (var group in duplicateGroups)
+        foreach (var f in all)
+        {
+            f.DuplicateGroupId = 0;
+            f.DuplicateGroupCount = 0;
+        }
+
+        foreach (var group in all.Where(f => f.Hash is not null).GroupBy(f => (f.Size, f.Hash!)).Where(g => g.Count() > 1))
         {
             int groupCount = group.Count();
-            long groupFileSize = group.First().Size;
-            reclaimableBytes += (groupCount - 1) * groupFileSize;
+            reclaimableBytes += (groupCount - 1) * group.Key.Size;
 
             foreach (var copy in group)
             {
@@ -347,18 +407,16 @@ public static class Scanner
             groupId++;
         }
 
-        progress?.Report(new ScanProgress(count, bytes, "Ready", "Complete"));
-        return new ScanResult(files, errors, bytes, reclaimableBytes);
+        return reclaimableBytes;
     }
 
-    private static bool ShouldSkipDirectory(string path, ISet<string> canonicalRoots)
+    private static bool ShouldSkipDirectory(string canonicalPath, string folderName, ISet<string> canonicalRoots, bool includeHiddenCaches)
     {
-        if (canonicalRoots.Contains(path)) return false;
-
-        string folderName = Path.GetFileName(path);
-        if (ExcludedFolderNames.Contains(folderName) || folderName.StartsWith('.')) return true;
-
-        return IsProtectedRoot(path);
+        if (IsProtectedRoot(canonicalPath)) return true;
+        if (canonicalRoots.Contains(canonicalPath)) return false;
+        if (AlwaysExcludedFolders.Contains(folderName)) return true;
+        if (!includeHiddenCaches && folderName.StartsWith('.')) return true;
+        return false;
     }
 
     public static bool IsProtectedPath(string path)

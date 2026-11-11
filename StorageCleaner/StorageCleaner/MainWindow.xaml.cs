@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using Microsoft.VisualBasic.FileIO;
 using Microsoft.Win32;
 
@@ -15,10 +16,18 @@ public partial class MainWindow : Window
     private List<FileEntry> _large = [];
     private CancellationTokenSource? _scanCts;
     private ScanResult? _lastResult;
+    private readonly DispatcherTimer _filterTimer;
 
     public MainWindow()
     {
         InitializeComponent();
+
+        _filterTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(180) };
+        _filterTimer.Tick += (_, _) =>
+        {
+            _filterTimer.Stop();
+            if (IsLoaded && _lastResult is not null) ApplyFilters(_lastResult.Files);
+        };
 
         string defaultPath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         if (string.IsNullOrWhiteSpace(defaultPath) || !Directory.Exists(defaultPath))
@@ -26,7 +35,7 @@ public partial class MainWindow : Window
             defaultPath = "C:\\Users";
         }
         RootsBox.Text = defaultPath;
-        UpdateSelectionSummary();
+        UpdateTabContext();
     }
 
     private async void Scan_Click(object sender, RoutedEventArgs e)
@@ -39,10 +48,18 @@ public partial class MainWindow : Window
             return;
         }
 
+        var options = new ScanOptions(
+            IncludeHiddenCaches: IncludeCachesCheck.IsChecked == true,
+            MinDuplicateBytes: ReadSelectedTag(MinDupSizeCombo, 100L * 1024),
+            FastLargeFileSampling: FastSampleCheck.IsChecked == true
+        );
+
         _scanCts = new CancellationTokenSource();
         SetScanning(true);
+        ScanBadge.Visibility = Visibility.Collapsed;
         ErrorSummary.Text = "";
         StatusText.Text = "Scanning selected locations…";
+        var sw = Stopwatch.StartNew();
 
         try
         {
@@ -51,16 +68,20 @@ public partial class MainWindow : Window
                 StatusText.Text = $"{p.Stage} · {p.Files:N0} files · {FileEntry.FormatBytes(p.Bytes)} · {p.CurrentPath}";
             });
 
-            // Run scan completely off the UI thread to ensure 100% UI responsiveness
             var rootsCopy = roots.ToArray();
             var token = _scanCts.Token;
-            _lastResult = await Task.Run(() => Scanner.ScanAsync(rootsCopy, progress, token), token);
+            _lastResult = await Task.Run(() => Scanner.ScanAsync(rootsCopy, options, progress, token), token);
+            sw.Stop();
 
+            SubscribeEvents(_lastResult.Files);
             PopulateResults(_lastResult.Files);
 
-            var failures = _lastResult.Errors.Count;
-            ErrorSummary.Text = failures == 0 ? "" : $"{failures:N0} path(s) skipped due to permissions or errors.";
-            StatusText.Text = $"Scan complete · {_lastResult.Files.Count:N0} files · {FileEntry.FormatBytes(_lastResult.BytesScanned)} scanned · {FileEntry.FormatBytes(_lastResult.ReclaimableDuplicateBytes)} reclaimable duplicates.";
+            int failures = _lastResult.Errors.Count;
+            ScanBadgeText.Text = failures == 0
+                ? $"Done in {sw.Elapsed.TotalSeconds:0.0}s"
+                : $"Done in {sw.Elapsed.TotalSeconds:0.0}s · {failures:N0} skipped";
+            ScanBadge.Visibility = Visibility.Visible;
+            ErrorSummary.Text = failures == 0 ? "" : $"{failures:N0} skipped";
 
             if (failures > 0)
             {
@@ -71,11 +92,11 @@ public partial class MainWindow : Window
         }
         catch (OperationCanceledException)
         {
-            StatusText.Text = "Scan cancelled. Results were not applied.";
+            ScanBadgeText.Text = "Cancelled";
+            ScanBadge.Visibility = Visibility.Visible;
         }
         catch (Exception ex)
         {
-            StatusText.Text = "Scan could not be completed.";
             MessageBox.Show(ex.Message, "Scan error", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
@@ -120,12 +141,6 @@ public partial class MainWindow : Window
                       .OrderByDescending(f => f.Size)
                       .ToList();
 
-        // Subscribe to PropertyChanged for instant footer reactivity
-        SubscribeEvents(_forgotten);
-        SubscribeEvents(_duplicates);
-        SubscribeEvents(_large);
-
-        // Assign directly to trigger single virtualized UI layout pass
         ForgottenGrid.ItemsSource = null;
         ForgottenGrid.ItemsSource = _forgotten;
 
@@ -139,10 +154,14 @@ public partial class MainWindow : Window
         DuplicateCount.Text = _duplicates.Count.ToString("N0");
         LargeCount.Text = _large.Count.ToString("N0");
 
+        ForgottenTab.Header = $"Forgotten ({_forgotten.Count:N0})";
+        DuplicatesTab.Header = $"Duplicates ({_duplicates.Count:N0})";
+        LargeTab.Header = $"Large ({_large.Count:N0})";
+
         UpdateSelectionSummary();
     }
 
-    private void SubscribeEvents(List<FileEntry> items)
+    private void SubscribeEvents(IReadOnlyList<FileEntry> items)
     {
         foreach (var item in items)
         {
@@ -175,15 +194,20 @@ public partial class MainWindow : Window
 
     private void ExtensionFilter_TextChanged(object sender, TextChangedEventArgs e)
     {
-        if (IsLoaded && _lastResult is not null) ApplyFilters(_lastResult.Files);
+        if (!IsLoaded || _lastResult is null) return;
+        _filterTimer.Stop();
+        _filterTimer.Start();
     }
 
     private void SetScanning(bool scanning)
     {
-        ScanButton.IsEnabled = !scanning;
-        CancelButton.IsEnabled = scanning;
+        ScanButton.Visibility = scanning ? Visibility.Collapsed : Visibility.Visible;
+        CancelButton.Visibility = scanning ? Visibility.Visible : Visibility.Collapsed;
         RootsBox.IsEnabled = !scanning;
-        ScanProgress.Visibility = scanning ? Visibility.Visible : Visibility.Collapsed;
+        IncludeCachesCheck.IsEnabled = !scanning;
+        MinDupSizeCombo.IsEnabled = !scanning;
+        FastSampleCheck.IsEnabled = !scanning;
+        ProgressPanel.Visibility = scanning ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => _scanCts?.Cancel();
@@ -199,7 +223,7 @@ public partial class MainWindow : Window
     private void ResultsTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!IsLoaded || !ReferenceEquals(e.Source, ResultsTabs)) return;
-        UpdateSelectionSummary();
+        UpdateTabContext();
     }
 
     private DataGrid? CurrentGrid => ResultsTabs.SelectedIndex switch
@@ -210,12 +234,19 @@ public partial class MainWindow : Window
         _ => null
     };
 
+    private void UpdateTabContext()
+    {
+        bool onFileTab = CurrentGrid is not null;
+        ActionBar.Visibility = onFileTab ? Visibility.Visible : Visibility.Collapsed;
+        ExtFilterPanel.Visibility = onFileTab ? Visibility.Visible : Visibility.Collapsed;
+        UpdateSelectionSummary();
+    }
+
     private void UpdateSelectionSummary()
     {
         var grid = CurrentGrid;
         if (grid is null)
         {
-            SelectedSummaryText.Text = "Select a results tab to review files";
             DeleteButton.IsEnabled = false;
             return;
         }
@@ -224,82 +255,53 @@ public partial class MainWindow : Window
         int count = items.Count(f => f.Selected);
         long size = items.Where(f => f.Selected).Sum(f => f.Size);
 
-        SelectedSummaryText.Text = count > 0 
-            ? $"{count:N0} file(s) selected ({FileEntry.FormatBytes(size)})" 
-            : "0 files selected";
+        SelectedSummaryText.Text = count > 0
+            ? $"{count:N0} selected · {FileEntry.FormatBytes(size)}"
+            : "0 selected";
 
         DeleteButton.IsEnabled = count > 0;
     }
 
-    // --- Smart Selection Handlers for Duplicates ---
-    private void KeepNewest_Click(object sender, RoutedEventArgs e)
+    private void JumpForgotten_Click(object sender, RoutedEventArgs e) => ResultsTabs.SelectedIndex = 1;
+    private void JumpDuplicates_Click(object sender, RoutedEventArgs e) => ResultsTabs.SelectedIndex = 2;
+    private void JumpLarge_Click(object sender, RoutedEventArgs e) => ResultsTabs.SelectedIndex = 3;
+
+    // --- Selection Helpers ---
+    private void SelectDuplicatesByAge(bool keepNewest)
     {
-        var groups = _duplicates.GroupBy(f => f.DuplicateGroupId);
-        foreach (var group in groups)
+        foreach (var group in _duplicates.GroupBy(f => f.DuplicateGroupId))
         {
-            var ordered = group.OrderByDescending(f => f.LastWriteUtc).ToList();
-            if (ordered.Count > 0) ordered[0].Selected = false; // Keep newest
+            var ordered = (keepNewest
+                ? group.OrderByDescending(f => f.LastWriteUtc)
+                : group.OrderBy(f => f.LastWriteUtc)).ToList();
+
+            if (ordered.Count > 0) ordered[0].Selected = false;
             for (int i = 1; i < ordered.Count; i++) ordered[i].Selected = true;
         }
         UpdateSelectionSummary();
     }
 
-    private void KeepOldest_Click(object sender, RoutedEventArgs e)
+    private void SetAllSelected(List<FileEntry> list, bool selected)
     {
-        var groups = _duplicates.GroupBy(f => f.DuplicateGroupId);
-        foreach (var group in groups)
-        {
-            var ordered = group.OrderBy(f => f.LastWriteUtc).ToList();
-            if (ordered.Count > 0) ordered[0].Selected = false; // Keep oldest
-            for (int i = 1; i < ordered.Count; i++) ordered[i].Selected = true;
-        }
+        foreach (var f in list) f.Selected = selected;
         UpdateSelectionSummary();
     }
 
-    private void DuplicatesSelectAll_Click(object sender, RoutedEventArgs e)
-    {
-        foreach (var f in _duplicates) f.Selected = true;
-        UpdateSelectionSummary();
-    }
-
-    private void DuplicatesDeselectAll_Click(object sender, RoutedEventArgs e)
-    {
-        foreach (var f in _duplicates) f.Selected = false;
-        UpdateSelectionSummary();
-    }
-
-    // --- Forgotten Files Selection Handlers ---
-    private void ForgottenSelectAll_Click(object sender, RoutedEventArgs e)
-    {
-        foreach (var f in _forgotten) f.Selected = true;
-        UpdateSelectionSummary();
-    }
-
-    private void ForgottenDeselectAll_Click(object sender, RoutedEventArgs e)
-    {
-        foreach (var f in _forgotten) f.Selected = false;
-        UpdateSelectionSummary();
-    }
-
-    // --- Large Files Selection Handlers ---
-    private void LargeSelectAll_Click(object sender, RoutedEventArgs e)
-    {
-        foreach (var f in _large) f.Selected = true;
-        UpdateSelectionSummary();
-    }
-
-    private void LargeDeselectAll_Click(object sender, RoutedEventArgs e)
-    {
-        foreach (var f in _large) f.Selected = false;
-        UpdateSelectionSummary();
-    }
+    private void KeepNewest_Click(object sender, RoutedEventArgs e) => SelectDuplicatesByAge(keepNewest: true);
+    private void KeepOldest_Click(object sender, RoutedEventArgs e) => SelectDuplicatesByAge(keepNewest: false);
+    private void DuplicatesSelectAll_Click(object sender, RoutedEventArgs e) => SetAllSelected(_duplicates, true);
+    private void DuplicatesDeselectAll_Click(object sender, RoutedEventArgs e) => SetAllSelected(_duplicates, false);
+    private void ForgottenSelectAll_Click(object sender, RoutedEventArgs e) => SetAllSelected(_forgotten, true);
+    private void ForgottenDeselectAll_Click(object sender, RoutedEventArgs e) => SetAllSelected(_forgotten, false);
+    private void LargeSelectAll_Click(object sender, RoutedEventArgs e) => SetAllSelected(_large, true);
+    private void LargeDeselectAll_Click(object sender, RoutedEventArgs e) => SetAllSelected(_large, false);
 
     private void OpenLocation_Click(object sender, RoutedEventArgs e)
     {
         var grid = CurrentGrid;
         if (grid?.SelectedItem is not FileEntry item)
         {
-            MessageBox.Show("Please select a file row first.", "No file selected", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show("Select a file row first.", "No file selected", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
 
@@ -327,30 +329,22 @@ public partial class MainWindow : Window
     private void Delete_Click(object sender, RoutedEventArgs e)
     {
         var grid = CurrentGrid;
-        if (grid is null)
-        {
-            MessageBox.Show("Open one of the results tabs before choosing files.", "No file list", MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
-        }
+        if (grid is null) return;
 
         grid.CommitEdit(DataGridEditingUnit.Cell, true);
         grid.CommitEdit(DataGridEditingUnit.Row, true);
 
         var items = grid.ItemsSource as IReadOnlyList<FileEntry> ?? [];
         var selected = items.Where(f => f.Selected).ToList();
-        if (selected.Count == 0)
-        {
-            MessageBox.Show("Select files using the checkboxes or smart selection buttons before deleting.", "Nothing selected", MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
-        }
+        if (selected.Count == 0) return;
 
         long total = selected.Sum(f => f.Size);
         string preview = string.Join(Environment.NewLine, selected.Take(6).Select(f => f.Path));
         if (selected.Count > 6) preview += Environment.NewLine + $"…and {selected.Count - 6:N0} more.";
 
         var answer = MessageBox.Show(
-            $"Move {selected.Count:N0} selected file(s) ({FileEntry.FormatBytes(total)}) to the Windows Recycle Bin?\n\n{preview}\n\nFiles are sent to the Recycle Bin and can be restored if needed.",
-            "Confirm move to Recycle Bin",
+            $"Move {selected.Count:N0} file(s) ({FileEntry.FormatBytes(total)}) to the Windows Recycle Bin?\n\n{preview}",
+            "Move to Recycle Bin",
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning,
             MessageBoxResult.No);
@@ -382,46 +376,23 @@ public partial class MainWindow : Window
         if (_lastResult is not null)
         {
             var remaining = _lastResult.Files.Where(f => File.Exists(f.Path)).ToList();
-            
-            // Recompute duplicate groups and reclaimable bytes on remaining
-            int groupId = 1;
-            long reclaimableBytes = 0;
-            var duplicateGroups = remaining.Where(f => f.Hash is not null)
-                                           .GroupBy(f => f.Hash!, StringComparer.Ordinal)
-                                           .Where(g => g.Count() > 1)
-                                           .ToList();
+            long reclaimableBytes = Scanner.AssignDuplicateGroups(remaining);
 
-            foreach (var f in remaining)
+            _lastResult = _lastResult with
             {
-                f.DuplicateGroupId = 0;
-                f.DuplicateGroupCount = 0;
-            }
-
-            foreach (var group in duplicateGroups)
-            {
-                int groupCount = group.Count();
-                long groupFileSize = group.First().Size;
-                reclaimableBytes += (groupCount - 1) * groupFileSize;
-                foreach (var copy in group)
-                {
-                    copy.DuplicateGroupId = groupId;
-                    copy.DuplicateGroupCount = groupCount;
-                }
-                groupId++;
-            }
-
-            _lastResult = _lastResult with { 
-                Files = remaining, 
+                Files = remaining,
                 BytesScanned = remaining.Sum(f => f.Size),
-                ReclaimableDuplicateBytes = reclaimableBytes 
+                ReclaimableDuplicateBytes = reclaimableBytes
             };
             PopulateResults(remaining);
         }
 
-        StatusText.Text = $"Moved {moved:N0} file(s) ({FileEntry.FormatBytes(movedBytes)}) to the Recycle Bin; {failed:N0} could not be moved.";
+        ScanBadgeText.Text = $"Recycled {moved:N0} ({FileEntry.FormatBytes(movedBytes)})";
+        ScanBadge.Visibility = Visibility.Visible;
+
         if (failed > 0)
         {
-            MessageBox.Show($"Moved: {moved:N0}\nSkipped or failed: {failed:N0}\nFiles in use, protected paths, or changed files may fail.", "Cleanup summary", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show($"Moved: {moved:N0}\nSkipped or failed: {failed:N0}\nFiles in use or protected paths may fail.", "Cleanup summary", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         UpdateSelectionSummary();
