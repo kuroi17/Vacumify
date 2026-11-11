@@ -223,7 +223,8 @@
                                Foreground="#64748B" TextAlignment="Center" TextWrapping="Wrap" MaxHeight="38" MaxWidth="340" TextTrimming="CharacterEllipsis"/>
                   </StackPanel>
 
-                  <Button Grid.Row="2" x:Name="ReviewDuplicatesBtn" Content="Review Duplicates &gt;" Click="JumpDuplicates_Click" Height="40" HorizontalAlignment="Stretch"/>
+                  <Button Grid.Row="2" x:Name="SmartCleanBtn" Content="⚡ 1-Click Clean Safe Junk" Click="SmartClean_Click" Height="40" HorizontalAlignment="Stretch"
+                          ToolTip="Safely moves redundant duplicate copies, old installers in Downloads, and crash dumps to the Windows Recycle Bin."/>
                 </Grid>
               </Border>
 
@@ -522,6 +523,73 @@
                   <DataGridTextColumn Header="Size" Binding="{Binding SizeText}" ElementStyle="{StaticResource MonoCellText}" Width="90" IsReadOnly="True"/>
                   <DataGridTextColumn Header="Modified" Binding="{Binding ModifiedText}" ElementStyle="{StaticResource MonoCellText}" Width="140" IsReadOnly="True"/>
                   <DataGridTextColumn Header="Path" Binding="{Binding Path}" ElementStyle="{StaticResource MonoCellText}" Width="*" IsReadOnly="True"/>
+                </DataGrid.Columns>
+              </DataGrid>
+            </Grid>
+          </TabItem>
+
+          <!-- AIRY LEDGER — DEV CACHES & ARTIFACTS HUNTER -->
+          <TabItem x:Name="DevCachesTab" Header="Dev Caches">
+            <Grid>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+              </Grid.RowDefinitions>
+              <Grid Grid.Row="0" Margin="0,10,0,6">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Dormant project packages &amp; build artifacts (node_modules, venvs, target, bin/obj)"
+                           FontSize="12" Foreground="#64748B" VerticalAlignment="Center"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                  <Button x:Name="DevToggleSelectBtn" Content="Select all" Click="DevToggleSelect_Click" Style="{StaticResource SecondaryButton}" Margin="0,0,8,0"/>
+                  <Button x:Name="CleanDevCachesBtn" Content="Clean Selected Caches" Click="CleanDevCaches_Click" Style="{StaticResource DangerButton}"/>
+                </StackPanel>
+              </Grid>
+
+              <DataGrid x:Name="DevCachesGrid" Grid.Row="1" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="False"
+                        SelectionMode="Extended" HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                        VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                        EnableRowVirtualization="True" ScrollViewer.CanContentScroll="True">
+                <DataGrid.Columns>
+                  <DataGridTemplateColumn Width="48" CanUserResize="False">
+                    <DataGridTemplateColumn.HeaderStyle>
+                      <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
+                        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                        <Setter Property="Padding" Value="0"/>
+                      </Style>
+                    </DataGridTemplateColumn.HeaderStyle>
+                    <DataGridTemplateColumn.CellStyle>
+                      <Style TargetType="DataGridCell" BasedOn="{StaticResource {x:Type DataGridCell}}">
+                        <Setter Property="Padding" Value="0"/>
+                        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                      </Style>
+                    </DataGridTemplateColumn.CellStyle>
+                    <DataGridTemplateColumn.CellTemplate>
+                      <DataTemplate>
+                        <CheckBox IsChecked="{Binding Selected, UpdateSourceTrigger=PropertyChanged}"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center" Focusable="False"/>
+                      </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                  </DataGridTemplateColumn>
+
+                  <DataGridTemplateColumn Header="Type" Width="120" IsReadOnly="True">
+                    <DataGridTemplateColumn.CellTemplate>
+                      <DataTemplate>
+                        <Border Background="{Binding TypeBadgeBg}" BorderBrush="{Binding TypeBadgeBorder}" BorderThickness="1"
+                                CornerRadius="4" Padding="6,2" HorizontalAlignment="Left" VerticalAlignment="Center">
+                          <TextBlock Text="{Binding CacheType}" FontSize="10.5" FontWeight="Medium" Foreground="{Binding TypeBadgeFg}"
+                                     FontFamily="{StaticResource MonoFont}"/>
+                        </Border>
+                      </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                  </DataGridTemplateColumn>
+
+                  <DataGridTextColumn Header="Project" Binding="{Binding ProjectName}" ElementStyle="{StaticResource FileNameCellText}" Width="190" IsReadOnly="True"/>
+                  <DataGridTextColumn Header="Size" Binding="{Binding SizeText}" ElementStyle="{StaticResource MonoCellText}" Width="95" IsReadOnly="True"/>
+                  <DataGridTextColumn Header="Last modified" Binding="{Binding ModifiedText}" ElementStyle="{StaticResource MonoCellText}" Width="140" IsReadOnly="True"/>
+                  <DataGridTextColumn Header="Location" Binding="{Binding Path}" ElementStyle="{StaticResource MonoCellText}" Width="*" IsReadOnly="True"/>
                 </DataGrid.Columns>
               </DataGrid>
             </Grid>

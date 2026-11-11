@@ -18,6 +18,8 @@
 
 ## Features
 
+- **⚡ 1-Click Smart Clean ("Safe Junk Sweep")** — Automatically detects zero-risk safe junk: redundant duplicate copies (always keeping original copy #1 intact), obsolete installers in Downloads (>30 days untouched), and dead crash dumps. Reclaim gigabytes in a single confirmation.
+- **🛠️ Dormant Dev Caches Hunter** — Detects bloated developer artifact folders (`node_modules`, Python `venv`/`.venv`, Rust `target`, .NET `bin`/`obj`, Gradle) without enumerating hundreds of thousands of tiny subfiles. Clean old project dependencies in seconds.
 - **Sub-10s Hybrid Duplicate File Finder** — Parallel multi-core directory traversal, exact byte-size grouping, 1 KB prefix filtering, and SHA-256 verification (full-file SHA-256 for files ≤ 16 MB; 8-point distributed 512 KB fingerprinting or optional full SHA-256 for larger files).
 - **Smart Duplicate Selection** — One-click **Keep newest**, **Keep oldest**, **Select all**, and **Deselect all** across grouped duplicates.
 - **Forgotten Files Tracker** — Surface files not accessed in **7, 15, 30, 60, or 90 days** to spot old downloads, installers, and clutter.

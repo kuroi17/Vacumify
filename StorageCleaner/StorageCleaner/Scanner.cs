@@ -158,10 +158,66 @@ public sealed record ScanProgress(long Files, long Bytes, string CurrentPath, st
 
 public sealed record ScanResult(
     IReadOnlyList<FileEntry> Files,
+    IReadOnlyList<DevCacheEntry> DevCaches,
     IReadOnlyList<string> Errors,
     long BytesScanned,
     long ReclaimableDuplicateBytes
 );
+
+public sealed class DevCacheEntry : INotifyPropertyChanged
+{
+    public required string Path { get; init; }
+    public required string ProjectName { get; init; }
+    public required string CacheType { get; init; }
+    public required long Size { get; set; }
+    public required DateTime LastModifiedUtc { get; init; }
+
+    private bool _selected;
+    public bool Selected
+    {
+        get => _selected;
+        set
+        {
+            if (_selected != value)
+            {
+                _selected = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Selected)));
+            }
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public string SizeText => FileEntry.FormatBytes(Size);
+    public string ModifiedText => LastModifiedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+
+    public string TypeBadgeBg => CacheType switch
+    {
+        "node_modules" => "#DCFCE7",
+        "Python venv" => "#DBEAFE",
+        ".NET bin/obj" => "#F3E8FF",
+        "Rust target" => "#FFEDD5",
+        _ => "#F1F5F9"
+    };
+
+    public string TypeBadgeBorder => CacheType switch
+    {
+        "node_modules" => "#86EFAC",
+        "Python venv" => "#93C5FD",
+        ".NET bin/obj" => "#D8B4FE",
+        "Rust target" => "#FDBA74",
+        _ => "#CBD5E1"
+    };
+
+    public string TypeBadgeFg => CacheType switch
+    {
+        "node_modules" => "#15803D",
+        "Python venv" => "#1D4ED8",
+        ".NET bin/obj" => "#7E22CE",
+        "Rust target" => "#C2410C",
+        _ => "#475569"
+    };
+}
 
 public static class Scanner
 {
@@ -225,11 +281,12 @@ public static class Scanner
 
         if (dirQueue.IsEmpty)
         {
-            return new ScanResult([], [.. errors], 0, 0);
+            return new ScanResult([], [], [.. errors], 0, 0);
         }
 
         // 1. Parallel Batched Directory Traversal
         var fileBags = new ConcurrentBag<List<FileEntry>>();
+        var devCachesBag = new ConcurrentBag<DevCacheEntry>();
         int pendingDirs = dirQueue.Count;
         using var semaphore = new SemaphoreSlim(pendingDirs);
         int workerCount = Math.Clamp(Environment.ProcessorCount, 4, 8);
@@ -281,6 +338,26 @@ public static class Scanner
                                 if (fsi.Attributes.HasFlag(FileAttributes.Directory))
                                 {
                                     string childPath = fsi.FullName.TrimEnd(Path.DirectorySeparatorChar);
+
+                                    // Intercept dev caches & project packages (node_modules, venvs, target, bin/obj)
+                                    if (!IsProtectedRoot(childPath) && IsDevCacheFolder(fsi.Name, out string cacheType))
+                                    {
+                                        long cacheBytes = FastGetDirectorySize(childPath);
+                                        string parentDir = Path.GetDirectoryName(childPath) ?? "";
+                                        string projName = Path.GetFileName(parentDir);
+                                        if (string.IsNullOrWhiteSpace(projName)) projName = fsi.Name;
+
+                                        devCachesBag.Add(new DevCacheEntry
+                                        {
+                                            Path = childPath,
+                                            ProjectName = projName,
+                                            CacheType = cacheType,
+                                            Size = cacheBytes,
+                                            LastModifiedUtc = fsi.LastWriteTimeUtc
+                                        });
+                                        continue;
+                                    }
+
                                     if (!ShouldSkipDirectory(childPath, fsi.Name, canonicalRoots, options.IncludeHiddenCaches)
                                         && seenDirectories.TryAdd(childPath, 0))
                                     {
@@ -482,7 +559,94 @@ public static class Scanner
         long reclaimableBytes = AssignDuplicateGroups(files);
 
         progress?.Report(new ScanProgress(totalFiles, totalBytes, "Ready", "Complete"));
-        return new ScanResult(files, [.. errors], totalBytes, reclaimableBytes);
+        return new ScanResult(files, devCachesBag.OrderByDescending(c => c.Size).ToList(), [.. errors], totalBytes, reclaimableBytes);
+    }
+
+    public static List<FileEntry> IdentifySafeJunk(IReadOnlyList<FileEntry> files)
+    {
+        var safeList = new List<FileEntry>();
+
+        // 1. Duplicate Copies (Keep newest copy, redundant older copies are 100% safe to remove)
+        foreach (var grp in files.Where(f => f.DuplicateGroupCount > 1).GroupBy(f => f.DuplicateGroupId))
+        {
+            var copies = grp.OrderByDescending(f => f.LastWriteUtc).ToList();
+            for (int i = 1; i < copies.Count; i++)
+            {
+                safeList.Add(copies[i]);
+            }
+        }
+
+        // 2. Old Installers & Crash Dumps (> 30 days untouched)
+        var cutoff = DateTime.UtcNow.AddDays(-30);
+        foreach (var f in files)
+        {
+            if (f.DuplicateGroupCount > 1) continue;
+
+            string ext = f.ExtensionText;
+            bool isInstaller = ext == "MSI" ||
+                (ext == "EXE" && (f.Name.Contains("setup", StringComparison.OrdinalIgnoreCase) ||
+                                  f.Name.Contains("installer", StringComparison.OrdinalIgnoreCase) ||
+                                  f.Name.Contains("install", StringComparison.OrdinalIgnoreCase)));
+
+            bool isCrashDump = ext == "DMP" || (ext == "LOG" && f.Size > 20 * 1024 * 1024);
+
+            if ((isInstaller || isCrashDump) && f.LastAccessUtc <= cutoff)
+            {
+                safeList.Add(f);
+            }
+        }
+
+        return safeList;
+    }
+
+    public static bool IsDevCacheFolder(string folderName, out string cacheType)
+    {
+        if (string.Equals(folderName, "node_modules", StringComparison.OrdinalIgnoreCase))
+        {
+            cacheType = "node_modules";
+            return true;
+        }
+        if (string.Equals(folderName, "venv", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(folderName, ".venv", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(folderName, "__pycache__", StringComparison.OrdinalIgnoreCase))
+        {
+            cacheType = "Python venv";
+            return true;
+        }
+        if (string.Equals(folderName, "target", StringComparison.OrdinalIgnoreCase))
+        {
+            cacheType = "Rust target";
+            return true;
+        }
+        if (string.Equals(folderName, "bin", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(folderName, "obj", StringComparison.OrdinalIgnoreCase))
+        {
+            cacheType = ".NET bin/obj";
+            return true;
+        }
+        if (string.Equals(folderName, ".gradle", StringComparison.OrdinalIgnoreCase))
+        {
+            cacheType = "Gradle";
+            return true;
+        }
+
+        cacheType = "";
+        return false;
+    }
+
+    public static long FastGetDirectorySize(string path)
+    {
+        long size = 0;
+        try
+        {
+            var opt = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true };
+            foreach (var fi in new DirectoryInfo(path).EnumerateFiles("*", opt))
+            {
+                size += fi.Length;
+            }
+        }
+        catch { }
+        return size;
     }
 
     public static long AssignDuplicateGroups(IEnumerable<FileEntry> files)
@@ -541,7 +705,7 @@ public static class Scanner
         });
     }
 
-    private static bool IsProtectedRoot(string path)
+    public static bool IsProtectedRoot(string path)
     {
         return ProtectedRoots.Where(p => !string.IsNullOrWhiteSpace(p)).Any(root =>
             string.Equals(Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar), path, StringComparison.OrdinalIgnoreCase));

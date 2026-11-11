@@ -15,6 +15,7 @@ public partial class MainWindow : Window
     private List<FileEntry> _forgotten = [];
     private List<FileEntry> _duplicates = [];
     private List<FileEntry> _large = [];
+    private List<DevCacheEntry> _devCaches = [];
     private CancellationTokenSource? _scanCts;
     private ScanResult? _lastResult;
     private FileEntry? _inspectedFile;
@@ -37,6 +38,7 @@ public partial class MainWindow : Window
             defaultPath = "C:\\Users";
         }
         RootsBox.Text = defaultPath;
+        SmartCleanBtn.IsEnabled = false;
         DrawDonutChart(0, 0, 0, 0);
         UpdateTabContext();
     }
@@ -123,6 +125,32 @@ public partial class MainWindow : Window
         FilesCount.Text = files.Count.ToString("N0");
         TotalScannedSize.Text = FileEntry.FormatBytes(_lastResult?.BytesScanned ?? 0);
         ReclaimableSpaceText.Text = FileEntry.FormatBytes(_lastResult?.ReclaimableDuplicateBytes ?? 0);
+
+        // 1-Click Smart Clean Safe Junk breakdown
+        var safeJunk = Scanner.IdentifySafeJunk(files);
+        long safeBytes = safeJunk.Sum(f => f.Size);
+        if (safeBytes > 0)
+        {
+            SmartCleanBtn.Content = $"⚡ 1-Click Clean Safe Junk ({FileEntry.FormatBytes(safeBytes)})";
+            SmartCleanBtn.IsEnabled = true;
+        }
+        else
+        {
+            SmartCleanBtn.Content = "System is Clean";
+            SmartCleanBtn.IsEnabled = false;
+        }
+
+        // Dormant Dev Caches
+        _devCaches = _lastResult?.DevCaches.ToList() ?? [];
+        foreach (var c in _devCaches)
+        {
+            c.PropertyChanged -= DevCache_PropertyChanged;
+            c.PropertyChanged += DevCache_PropertyChanged;
+        }
+        DevCachesGrid.ItemsSource = null;
+        DevCachesGrid.ItemsSource = _devCaches;
+        DevCachesTab.Header = $"Dev Caches ({_devCaches.Count:N0})";
+        UpdateDevCachesButtonState();
     }
 
     private void ApplyFilters(IReadOnlyList<FileEntry> files)
@@ -330,7 +358,9 @@ public partial class MainWindow : Window
         IncludeCachesCheck.IsEnabled = !scanning;
         MinDupSizeCombo.IsEnabled = !scanning;
         FastSampleCheck.IsEnabled = !scanning;
-        ReviewDuplicatesBtn.IsEnabled = !scanning;
+        SmartCleanBtn.IsEnabled = !scanning && (_lastResult is not null && Scanner.IdentifySafeJunk(_lastResult.Files).Count > 0);
+        DevToggleSelectBtn.IsEnabled = !scanning;
+        CleanDevCachesBtn.IsEnabled = !scanning && _devCaches.Any(c => c.Selected);
 
         var resultVis = scanning ? Visibility.Collapsed : Visibility.Visible;
         var spinnerVis = scanning ? Visibility.Visible : Visibility.Collapsed;
@@ -561,6 +591,139 @@ public partial class MainWindow : Window
     private void DuplicatesToggleSelect_Click(object sender, RoutedEventArgs e) => ToggleSelectAll(_duplicates, DuplicatesToggleSelectBtn);
     private void ForgottenToggleSelect_Click(object sender, RoutedEventArgs e) => ToggleSelectAll(_forgotten, ForgottenToggleSelectBtn);
     private void LargeToggleSelect_Click(object sender, RoutedEventArgs e) => ToggleSelectAll(_large, LargeToggleSelectBtn);
+
+    private void SmartClean_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lastResult is null || _lastResult.Files.Count == 0) return;
+
+        var safeJunk = Scanner.IdentifySafeJunk(_lastResult.Files);
+        if (safeJunk.Count == 0)
+        {
+            MessageBox.Show("No zero-risk safe junk found. Your system is already clean!", "1-Click Smart Clean", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dupFiles = safeJunk.Where(f => f.DuplicateGroupCount > 1).ToList();
+        var otherFiles = safeJunk.Where(f => f.DuplicateGroupCount <= 1).ToList();
+
+        int dupCount = dupFiles.Count;
+        long dupBytes = dupFiles.Sum(f => f.Size);
+
+        int installerCount = otherFiles.Count(f => f.ExtensionText is "MSI" or "EXE");
+        long installerBytes = otherFiles.Where(f => f.ExtensionText is "MSI" or "EXE").Sum(f => f.Size);
+
+        int dumpCount = otherFiles.Count(f => f.ExtensionText is "DMP" or "LOG");
+        long dumpBytes = otherFiles.Where(f => f.ExtensionText is "DMP" or "LOG").Sum(f => f.Size);
+
+        long totalBytes = safeJunk.Sum(f => f.Size);
+
+        var msg = $"Vacumify identified {safeJunk.Count:N0} zero-risk safe junk file(s) ({FileEntry.FormatBytes(totalBytes)}):\n\n" +
+                  $"• Redundant duplicate copies: {dupCount:N0} ({FileEntry.FormatBytes(dupBytes)})\n   (1st/newest copy of each file is kept safe)\n" +
+                  $"• Obsolete installers in Downloads (>30d untouched): {installerCount:N0} ({FileEntry.FormatBytes(installerBytes)})\n" +
+                  $"• Crash dumps & dead logs: {dumpCount:N0} ({FileEntry.FormatBytes(dumpBytes)})\n\n" +
+                  $"Move all safe junk to the Windows Recycle Bin?";
+
+        var res = MessageBox.Show(msg, "⚡ 1-Click Smart Clean", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes);
+        if (res == MessageBoxResult.Yes)
+        {
+            MoveFilesToRecycleBin(safeJunk);
+        }
+    }
+
+    private void DevCache_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(DevCacheEntry.Selected))
+        {
+            UpdateDevCachesButtonState();
+        }
+    }
+
+    private void DevToggleSelect_Click(object sender, RoutedEventArgs e)
+    {
+        if (_devCaches.Count == 0) return;
+        bool allSelected = _devCaches.All(c => c.Selected);
+        bool newState = !allSelected;
+        foreach (var c in _devCaches) c.Selected = newState;
+        DevToggleSelectBtn.Content = newState ? "Deselect all" : "Select all";
+        UpdateDevCachesButtonState();
+    }
+
+    private void UpdateDevCachesButtonState()
+    {
+        if (_devCaches.Count == 0)
+        {
+            CleanDevCachesBtn.IsEnabled = false;
+            CleanDevCachesBtn.Content = "Clean Selected Caches";
+            DevToggleSelectBtn.Content = "Select all";
+            return;
+        }
+
+        int selCount = _devCaches.Count(c => c.Selected);
+        long selSize = _devCaches.Where(c => c.Selected).Sum(c => c.Size);
+        CleanDevCachesBtn.IsEnabled = selCount > 0;
+        CleanDevCachesBtn.Content = selCount > 0
+            ? $"Clean Selected ({selCount:N0} · {FileEntry.FormatBytes(selSize)})"
+            : "Clean Selected Caches";
+        DevToggleSelectBtn.Content = _devCaches.All(c => c.Selected) ? "Deselect all" : "Select all";
+    }
+
+    private void CleanDevCaches_Click(object sender, RoutedEventArgs e)
+    {
+        DevCachesGrid.CommitEdit(DataGridEditingUnit.Cell, true);
+        DevCachesGrid.CommitEdit(DataGridEditingUnit.Row, true);
+
+        var targets = _devCaches.Where(c => c.Selected).ToList();
+        if (targets.Count == 0) return;
+
+        long totalBytes = targets.Sum(c => c.Size);
+        string preview = string.Join(Environment.NewLine, targets.Take(6).Select(c => $"{c.ProjectName} ({c.CacheType}) -> {c.Path}"));
+        if (targets.Count > 6) preview += Environment.NewLine + $"…and {targets.Count - 6:N0} more.";
+
+        var answer = MessageBox.Show(
+            $"Move {targets.Count:N0} developer cache folder(s) ({FileEntry.FormatBytes(totalBytes)}) to the Windows Recycle Bin?\n\n{preview}\n\nNote: You can re-install dependencies or rebuild at any time.",
+            "Clean Dev Caches",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning,
+            MessageBoxResult.No);
+
+        if (answer != MessageBoxResult.Yes) return;
+
+        int moved = 0, failed = 0;
+        long movedBytes = 0;
+
+        foreach (var cache in targets)
+        {
+            try
+            {
+                if (!Directory.Exists(cache.Path) || Scanner.IsProtectedRoot(cache.Path))
+                {
+                    failed++;
+                    continue;
+                }
+                FileSystem.DeleteDirectory(cache.Path, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin);
+                moved++;
+                movedBytes += cache.Size;
+            }
+            catch
+            {
+                failed++;
+            }
+        }
+
+        _devCaches.RemoveAll(c => !Directory.Exists(c.Path));
+        DevCachesGrid.ItemsSource = null;
+        DevCachesGrid.ItemsSource = _devCaches;
+        DevCachesTab.Header = $"Dev Caches ({_devCaches.Count:N0})";
+        UpdateDevCachesButtonState();
+
+        ScanTimingText.Text = $"Recycled {moved:N0} dev caches ({FileEntry.FormatBytes(movedBytes)})";
+        ScanTimingText.Visibility = Visibility.Visible;
+
+        if (failed > 0)
+        {
+            MessageBox.Show($"Moved: {moved:N0}\nSkipped or failed: {failed:N0}\nFolders in use (e.g. open terminal or IDE) may fail.", "Dev Caches Cleanup", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+    }
 
     private void OpenLocation_Click(object sender, RoutedEventArgs e)
     {
