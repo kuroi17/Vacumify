@@ -105,6 +105,11 @@
               <ComboBoxItem Content="1 MB+" Tag="1048576"/>
               <ComboBoxItem Content="All (&gt; 0 B)" Tag="1"/>
             </ComboBox>
+
+            <!-- 1-Click MCP Agent Integration Button -->
+            <Button x:Name="CopyMcpConfigBtn" Content="⚡ Connect AI / MCP" Click="CopyMcpConfig_Click"
+                    Style="{StaticResource SecondaryButton}" Height="34" Margin="0,14,0,0" HorizontalAlignment="Stretch"
+                    ToolTip="Copies ready-to-paste MCP config for Claude Code, Cursor, and Claude Desktop to your clipboard."/>
           </StackPanel>
         </Border>
       </Grid>

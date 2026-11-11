@@ -383,6 +383,25 @@ public partial class MainWindow : Window
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => _scanCts?.Cancel();
 
+    private async void CopyMcpConfig_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            string exePath = Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName ?? "Vacumify.exe";
+            string escapedPath = exePath.Replace(@"\", @"\\");
+            string json = "{\n  \"mcpServers\": {\n    \"vacumify\": {\n      \"command\": \"" + escapedPath + "\",\n      \"args\": [\"--mcp\"]\n    }\n  }\n}";
+
+            Clipboard.SetText(json);
+            CopyMcpConfigBtn.Content = "✓ Copied MCP Config!";
+            await Task.Delay(2000);
+            CopyMcpConfigBtn.Content = "⚡ Connect AI / MCP";
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "Clipboard Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
     private void QuickTarget_Click(object sender, RoutedEventArgs e)
     {
         if (_scanCts is not null || sender is not Button btn || btn.Tag is not string key) return;

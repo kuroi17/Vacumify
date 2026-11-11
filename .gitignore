@@ -31,3 +31,4 @@ scratch/
 .playwright-mcp/
 download.png
 images.jpg
+*.zip

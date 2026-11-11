@@ -45,3 +45,4 @@ claude mcp add vacumify -- C:\path\to\Vacumify.exe --mcp
 set VACUMIFY_PATH=C:\path\to\Vacumify.exe
 npx vacumify-mcp
 ```
+
