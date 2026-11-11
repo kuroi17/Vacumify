@@ -98,15 +98,286 @@
       </Setter>
     </Style>
 
-    <!-- Card Icon Badge -->
+    <!-- Card Icon Badge (Borderless & Clean Minimalist) -->
     <Style x:Key="CardIconBadge" TargetType="Border">
-      <Setter Property="Width" Value="34"/>
-      <Setter Property="Height" Value="34"/>
-      <Setter Property="CornerRadius" Value="9"/>
-      <Setter Property="Background" Value="#EFF8FF"/>
-      <Setter Property="BorderBrush" Value="#D6EBFC"/>
-      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Width" Value="24"/>
+      <Setter Property="Height" Value="24"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
     </Style>
+
+    <!-- ================================================================= -->
+    <!-- VECTOR SVG FILE TYPE ICONS (Pixel-perfect at all DPI scales)      -->
+    <!-- ================================================================= -->
+    <!-- 1. PDF -->
+    <DrawingImage x:Key="FileIconPdf">
+      <DrawingImage.Drawing>
+        <DrawingGroup>
+          <GeometryDrawing Brush="#FEE2E2">
+            <GeometryDrawing.Pen><Pen Brush="#DC2626" Thickness="1.6" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry><PathGeometry Figures="M 14,2 H 6 A 2,2 0 0 0 4,4 V 20 A 2,2 0 0 0 6,22 H 18 A 2,2 0 0 0 20,20 V 8 Z"/></GeometryDrawing.Geometry>
+          </GeometryDrawing>
+          <GeometryDrawing Brush="#FECACA">
+            <GeometryDrawing.Pen><Pen Brush="#DC2626" Thickness="1.6" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry><PathGeometry Figures="M 14,2 V 8 H 20 Z"/></GeometryDrawing.Geometry>
+          </GeometryDrawing>
+          <GeometryDrawing>
+            <GeometryDrawing.Pen><Pen Brush="#DC2626" Thickness="1.5" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry>
+              <GeometryGroup>
+                <PathGeometry Figures="M 7,15 H 9 A 1.5,1.5 0 0 0 9,12 H 7 V 18"/>
+                <PathGeometry Figures="M 12,12 V 18 H 13.5 A 2,2 0 0 0 15.5,16 V 14 A 2,2 0 0 0 13.5,12 Z"/>
+              </GeometryGroup>
+            </GeometryDrawing.Geometry>
+          </GeometryDrawing>
+        </DrawingGroup>
+      </DrawingImage.Drawing>
+    </DrawingImage>
+
+    <!-- 2. EXCEL (XLSX, XLS, CSV) -->
+    <DrawingImage x:Key="FileIconExcel">
+      <DrawingImage.Drawing>
+        <DrawingGroup>
+          <GeometryDrawing Brush="#DCFCE7">
+            <GeometryDrawing.Pen><Pen Brush="#16A34A" Thickness="1.6" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry><PathGeometry Figures="M 14,2 H 6 A 2,2 0 0 0 4,4 V 20 A 2,2 0 0 0 6,22 H 18 A 2,2 0 0 0 20,20 V 8 Z"/></GeometryDrawing.Geometry>
+          </GeometryDrawing>
+          <GeometryDrawing Brush="#BBF7D0">
+            <GeometryDrawing.Pen><Pen Brush="#16A34A" Thickness="1.6" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry><PathGeometry Figures="M 14,2 V 8 H 20 Z"/></GeometryDrawing.Geometry>
+          </GeometryDrawing>
+          <GeometryDrawing>
+            <GeometryDrawing.Pen><Pen Brush="#16A34A" Thickness="1.4" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry>
+              <GeometryGroup>
+                <PathGeometry Figures="M 8,12 H 16 V 18 H 8 Z"/>
+                <PathGeometry Figures="M 8,15 H 16"/>
+                <PathGeometry Figures="M 12,12 V 18"/>
+              </GeometryGroup>
+            </GeometryDrawing.Geometry>
+          </GeometryDrawing>
+        </DrawingGroup>
+      </DrawingImage.Drawing>
+    </DrawingImage>
+
+    <!-- 3. WORD (DOCX, DOC, RTF) -->
+    <DrawingImage x:Key="FileIconWord">
+      <DrawingImage.Drawing>
+        <DrawingGroup>
+          <GeometryDrawing Brush="#DBEAFE">
+            <GeometryDrawing.Pen><Pen Brush="#2563EB" Thickness="1.6" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry><PathGeometry Figures="M 14,2 H 6 A 2,2 0 0 0 4,4 V 20 A 2,2 0 0 0 6,22 H 18 A 2,2 0 0 0 20,20 V 8 Z"/></GeometryDrawing.Geometry>
+          </GeometryDrawing>
+          <GeometryDrawing Brush="#BFDBFE">
+            <GeometryDrawing.Pen><Pen Brush="#2563EB" Thickness="1.6" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry><PathGeometry Figures="M 14,2 V 8 H 20 Z"/></GeometryDrawing.Geometry>
+          </GeometryDrawing>
+          <GeometryDrawing>
+            <GeometryDrawing.Pen><Pen Brush="#2563EB" Thickness="1.6" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry>
+              <GeometryGroup>
+                <PathGeometry Figures="M 8,12 H 16"/>
+                <PathGeometry Figures="M 8,15 H 16"/>
+                <PathGeometry Figures="M 8,18 H 13"/>
+              </GeometryGroup>
+            </GeometryDrawing.Geometry>
+          </GeometryDrawing>
+        </DrawingGroup>
+      </DrawingImage.Drawing>
+    </DrawingImage>
+
+    <!-- 4. POWERPOINT (PPT, PPTX) -->
+    <DrawingImage x:Key="FileIconPowerPoint">
+      <DrawingImage.Drawing>
+        <DrawingGroup>
+          <GeometryDrawing Brush="#FFEDD5">
+            <GeometryDrawing.Pen><Pen Brush="#EA580C" Thickness="1.6" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry><PathGeometry Figures="M 14,2 H 6 A 2,2 0 0 0 4,4 V 20 A 2,2 0 0 0 6,22 H 18 A 2,2 0 0 0 20,20 V 8 Z"/></GeometryDrawing.Geometry>
+          </GeometryDrawing>
+          <GeometryDrawing Brush="#FED7AA">
+            <GeometryDrawing.Pen><Pen Brush="#EA580C" Thickness="1.6" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry><PathGeometry Figures="M 14,2 V 8 H 20 Z"/></GeometryDrawing.Geometry>
+          </GeometryDrawing>
+          <GeometryDrawing>
+            <GeometryDrawing.Pen><Pen Brush="#EA580C" Thickness="1.5" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry>
+              <GeometryGroup>
+                <PathGeometry Figures="M 8,15 H 10 A 1.5,1.5 0 0 0 10,12 H 8 V 18"/>
+                <PathGeometry Figures="M 13,14 A 2.5,2.5 0 1 0 16,16.4"/>
+              </GeometryGroup>
+            </GeometryDrawing.Geometry>
+          </GeometryDrawing>
+        </DrawingGroup>
+      </DrawingImage.Drawing>
+    </DrawingImage>
+
+    <!-- 5. CODE (CS, PY, JS, TS, HTML, CSS, JSON, XML, etc.) -->
+    <DrawingImage x:Key="FileIconCode">
+      <DrawingImage.Drawing>
+        <DrawingGroup>
+          <GeometryDrawing Brush="#F3E8FF">
+            <GeometryDrawing.Pen><Pen Brush="#7C3AED" Thickness="1.6" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry><PathGeometry Figures="M 14,2 H 6 A 2,2 0 0 0 4,4 V 20 A 2,2 0 0 0 6,22 H 18 A 2,2 0 0 0 20,20 V 8 Z"/></GeometryDrawing.Geometry>
+          </GeometryDrawing>
+          <GeometryDrawing Brush="#E9D5FF">
+            <GeometryDrawing.Pen><Pen Brush="#7C3AED" Thickness="1.6" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry><PathGeometry Figures="M 14,2 V 8 H 20 Z"/></GeometryDrawing.Geometry>
+          </GeometryDrawing>
+          <GeometryDrawing>
+            <GeometryDrawing.Pen><Pen Brush="#7C3AED" Thickness="1.6" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry>
+              <GeometryGroup>
+                <PathGeometry Figures="M 9,13 L 7,15 L 9,17"/>
+                <PathGeometry Figures="M 15,13 L 17,15 L 15,17"/>
+                <PathGeometry Figures="M 13,12 L 11,18"/>
+              </GeometryGroup>
+            </GeometryDrawing.Geometry>
+          </GeometryDrawing>
+        </DrawingGroup>
+      </DrawingImage.Drawing>
+    </DrawingImage>
+
+    <!-- 6. IMAGE (PNG, JPG, JPEG, WEBP, GIF, SVG) -->
+    <DrawingImage x:Key="FileIconImage">
+      <DrawingImage.Drawing>
+        <DrawingGroup>
+          <GeometryDrawing Brush="#FCE7F3">
+            <GeometryDrawing.Pen><Pen Brush="#DB2777" Thickness="1.6" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry><PathGeometry Figures="M 14,2 H 6 A 2,2 0 0 0 4,4 V 20 A 2,2 0 0 0 6,22 H 18 A 2,2 0 0 0 20,20 V 8 Z"/></GeometryDrawing.Geometry>
+          </GeometryDrawing>
+          <GeometryDrawing Brush="#FBCFE8">
+            <GeometryDrawing.Pen><Pen Brush="#DB2777" Thickness="1.6" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry><PathGeometry Figures="M 14,2 V 8 H 20 Z"/></GeometryDrawing.Geometry>
+          </GeometryDrawing>
+          <GeometryDrawing Brush="#DB2777">
+            <GeometryDrawing.Geometry><EllipseGeometry Center="9,12" RadiusX="1.2" RadiusY="1.2"/></GeometryDrawing.Geometry>
+          </GeometryDrawing>
+          <GeometryDrawing Brush="#FBCFE8">
+            <GeometryDrawing.Pen><Pen Brush="#DB2777" Thickness="1.4" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry><PathGeometry Figures="M 7,18 L 10.5,14.5 L 12.5,16.5 L 15,13 L 17,18 Z"/></GeometryDrawing.Geometry>
+          </GeometryDrawing>
+        </DrawingGroup>
+      </DrawingImage.Drawing>
+    </DrawingImage>
+
+    <!-- 7. VIDEO (MP4, MKV, MOV, AVI) -->
+    <DrawingImage x:Key="FileIconVideo">
+      <DrawingImage.Drawing>
+        <DrawingGroup>
+          <GeometryDrawing Brush="#FFE4E6">
+            <GeometryDrawing.Pen><Pen Brush="#E11D48" Thickness="1.6" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry><PathGeometry Figures="M 14,2 H 6 A 2,2 0 0 0 4,4 V 20 A 2,2 0 0 0 6,22 H 18 A 2,2 0 0 0 20,20 V 8 Z"/></GeometryDrawing.Geometry>
+          </GeometryDrawing>
+          <GeometryDrawing Brush="#FECDD3">
+            <GeometryDrawing.Pen><Pen Brush="#E11D48" Thickness="1.6" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry><PathGeometry Figures="M 14,2 V 8 H 20 Z"/></GeometryDrawing.Geometry>
+          </GeometryDrawing>
+          <GeometryDrawing>
+            <GeometryDrawing.Pen><Pen Brush="#E11D48" Thickness="1.5" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry>
+              <GeometryGroup>
+                <PathGeometry Figures="M 9.5,12 H 13.5 A 0.5,0.5 0 0 1 14,12.5 V 15.5 A 0.5,0.5 0 0 1 13.5,16 H 9.5 A 0.5,0.5 0 0 1 9,15.5 V 12.5 A 0.5,0.5 0 0 1 9.5,12 Z"/>
+                <PathGeometry Figures="M 14,13 L 17,11.5 V 16.5 L 14,15 Z"/>
+              </GeometryGroup>
+            </GeometryDrawing.Geometry>
+          </GeometryDrawing>
+        </DrawingGroup>
+      </DrawingImage.Drawing>
+    </DrawingImage>
+
+    <!-- 8. AUDIO (MP3, WAV, FLAC) -->
+    <DrawingImage x:Key="FileIconAudio">
+      <DrawingImage.Drawing>
+        <DrawingGroup>
+          <GeometryDrawing Brush="#CCFBF1">
+            <GeometryDrawing.Pen><Pen Brush="#0D9488" Thickness="1.6" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry><PathGeometry Figures="M 14,2 H 6 A 2,2 0 0 0 4,4 V 20 A 2,2 0 0 0 6,22 H 18 A 2,2 0 0 0 20,20 V 8 Z"/></GeometryDrawing.Geometry>
+          </GeometryDrawing>
+          <GeometryDrawing Brush="#99F6E4">
+            <GeometryDrawing.Pen><Pen Brush="#0D9488" Thickness="1.6" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry><PathGeometry Figures="M 14,2 V 8 H 20 Z"/></GeometryDrawing.Geometry>
+          </GeometryDrawing>
+          <GeometryDrawing Brush="#0D9488">
+            <GeometryDrawing.Geometry><EllipseGeometry Center="10,16" RadiusX="1.8" RadiusY="1.8"/></GeometryDrawing.Geometry>
+          </GeometryDrawing>
+          <GeometryDrawing>
+            <GeometryDrawing.Pen><Pen Brush="#0D9488" Thickness="1.5" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry><PathGeometry Figures="M 11.8,16 V 11.5 L 15,10.5 V 14"/></GeometryDrawing.Geometry>
+          </GeometryDrawing>
+        </DrawingGroup>
+      </DrawingImage.Drawing>
+    </DrawingImage>
+
+    <!-- 9. ARCHIVE (ZIP, RAR, 7Z, TAR) -->
+    <DrawingImage x:Key="FileIconArchive">
+      <DrawingImage.Drawing>
+        <DrawingGroup>
+          <GeometryDrawing Brush="#FEF3C7">
+            <GeometryDrawing.Pen><Pen Brush="#D97706" Thickness="1.6" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry><PathGeometry Figures="M 14,2 H 6 A 2,2 0 0 0 4,4 V 20 A 2,2 0 0 0 6,22 H 18 A 2,2 0 0 0 20,20 V 8 Z"/></GeometryDrawing.Geometry>
+          </GeometryDrawing>
+          <GeometryDrawing Brush="#FDE68A">
+            <GeometryDrawing.Pen><Pen Brush="#D97706" Thickness="1.6" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry><PathGeometry Figures="M 14,2 V 8 H 20 Z"/></GeometryDrawing.Geometry>
+          </GeometryDrawing>
+          <GeometryDrawing>
+            <GeometryDrawing.Pen><Pen Brush="#D97706" Thickness="1.5" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry>
+              <GeometryGroup>
+                <PathGeometry Figures="M 11,5 H 12"/>
+                <PathGeometry Figures="M 12,7 H 13"/>
+                <PathGeometry Figures="M 11,9 H 12"/>
+                <PathGeometry Figures="M 12,11 H 13"/>
+                <PathGeometry Figures="M 11,13 H 12"/>
+                <PathGeometry Figures="M 10,15 H 14 V 18 H 10 Z"/>
+              </GeometryGroup>
+            </GeometryDrawing.Geometry>
+          </GeometryDrawing>
+        </DrawingGroup>
+      </DrawingImage.Drawing>
+    </DrawingImage>
+
+    <!-- 10. TEXT (TXT, MD, LOG) -->
+    <DrawingImage x:Key="FileIconText">
+      <DrawingImage.Drawing>
+        <DrawingGroup>
+          <GeometryDrawing Brush="#F1F5F9">
+            <GeometryDrawing.Pen><Pen Brush="#64748B" Thickness="1.6" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry><PathGeometry Figures="M 14,2 H 6 A 2,2 0 0 0 4,4 V 20 A 2,2 0 0 0 6,22 H 18 A 2,2 0 0 0 20,20 V 8 Z"/></GeometryDrawing.Geometry>
+          </GeometryDrawing>
+          <GeometryDrawing Brush="#E2E8F0">
+            <GeometryDrawing.Pen><Pen Brush="#64748B" Thickness="1.6" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry><PathGeometry Figures="M 14,2 V 8 H 20 Z"/></GeometryDrawing.Geometry>
+          </GeometryDrawing>
+          <GeometryDrawing>
+            <GeometryDrawing.Pen><Pen Brush="#64748B" Thickness="1.6" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry>
+              <GeometryGroup>
+                <PathGeometry Figures="M 8,12 H 16"/>
+                <PathGeometry Figures="M 8,15 H 14"/>
+                <PathGeometry Figures="M 8,18 H 12"/>
+              </GeometryGroup>
+            </GeometryDrawing.Geometry>
+          </GeometryDrawing>
+        </DrawingGroup>
+      </DrawingImage.Drawing>
+    </DrawingImage>
+
+    <!-- 11. GENERIC / OTHER -->
+    <DrawingImage x:Key="FileIconGeneric">
+      <DrawingImage.Drawing>
+        <DrawingGroup>
+          <GeometryDrawing Brush="#E0F2FE">
+            <GeometryDrawing.Pen><Pen Brush="#0284C7" Thickness="1.6" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry><PathGeometry Figures="M 14,2 H 6 A 2,2 0 0 0 4,4 V 20 A 2,2 0 0 0 6,22 H 18 A 2,2 0 0 0 20,20 V 8 Z"/></GeometryDrawing.Geometry>
+          </GeometryDrawing>
+          <GeometryDrawing Brush="#BAE6FD">
+            <GeometryDrawing.Pen><Pen Brush="#0284C7" Thickness="1.6" StartLineCap="Round" EndLineCap="Round" LineJoin="Round"/></GeometryDrawing.Pen>
+            <GeometryDrawing.Geometry><PathGeometry Figures="M 14,2 V 8 H 20 Z"/></GeometryDrawing.Geometry>
+          </GeometryDrawing>
+        </DrawingGroup>
+      </DrawingImage.Drawing>
+    </DrawingImage>
 
     <!-- Primary Sky-Blue Button -->
     <Style TargetType="Button">

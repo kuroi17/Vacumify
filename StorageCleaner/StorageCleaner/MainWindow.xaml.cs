@@ -297,10 +297,6 @@ public partial class MainWindow : Window
         if (e.PropertyName == nameof(FileEntry.Selected))
         {
             UpdateSelectionSummary();
-            if (ReferenceEquals(sender, _inspectedFile))
-            {
-                UpdateInspectorMarkText();
-            }
         }
     }
 
@@ -403,7 +399,6 @@ public partial class MainWindow : Window
     private void UpdateTabContext()
     {
         bool onFileTab = CurrentGrid is not null;
-        ActionBar.Visibility = onFileTab ? Visibility.Visible : Visibility.Collapsed;
         ExtFilterPanel.Visibility = onFileTab ? Visibility.Visible : Visibility.Collapsed;
 
         if (!onFileTab)
@@ -444,34 +439,18 @@ public partial class MainWindow : Window
         InspectorFilePath.Text = item.Path;
         InspectorAccessed.Text = item.AccessedText;
         InspectorModified.Text = item.ModifiedText;
-        UpdateInspectorMarkText();
 
-        // Dynamic category icon and color badge
+        // Clean borderless vector SVG file icon
+        InspectorFileIcon.Source = item.IconImage;
+
+        // Dynamic category pill
         InspectorExtText.Text = item.ExtensionText;
         if (ColorConverter.ConvertFromString(item.TypeBadgeBg) is Color bgCol)
-        {
             InspectorExtBadge.Background = new SolidColorBrush(bgCol);
-            InspectorIconBadge.Background = new SolidColorBrush(bgCol);
-        }
         if (ColorConverter.ConvertFromString(item.TypeBadgeBorder) is Color borderCol)
-        {
             InspectorExtBadge.BorderBrush = new SolidColorBrush(borderCol);
-            InspectorIconBadge.BorderBrush = new SolidColorBrush(borderCol);
-        }
         if (ColorConverter.ConvertFromString(item.TypeBadgeFg) is Color fgCol)
-        {
-            var brush = new SolidColorBrush(fgCol);
-            InspectorExtText.Foreground = brush;
-            InspectorIconPath.Stroke = brush;
-        }
-
-        InspectorIconPath.Data = Geometry.Parse(item.FileCategory switch
-        {
-            "Code" => "M8,9 L4,12 L8,15 M16,9 L20,12 L16,15 M13,7 L11,17",
-            "Media" => "M4,5 H20 V17 H4 Z M4,14 L8,10 L14,16 M13,13 L15,11 L20,16 M8,8 A1.5,1.5 0 1 1 8,7.99",
-            "Archive" => "M4,4 H20 V8 H4 Z M4,8 V19 C4,20 5,21 6,21 H18 C19,21 20,20 20,19 V8 M10,12 H14 M12,12 V15",
-            _ => "M6,2 H14 L19,7 V21 H6 Z M14,2 V7 H19"
-        });
+            InspectorExtText.Foreground = new SolidColorBrush(fgCol);
 
         if (item.DuplicateGroupCount > 1 && _lastResult is not null)
         {
@@ -493,12 +472,6 @@ public partial class MainWindow : Window
         InspectorPanel.Visibility = Visibility.Visible;
     }
 
-    private void UpdateInspectorMarkText()
-    {
-        if (_inspectedFile is null) return;
-        InspectorMarkButton.Content = _inspectedFile.Selected ? "Unmark from Recycle" : "Mark for Recycle";
-    }
-
     private void CloseInspector()
     {
         _inspectedFile = null;
@@ -509,14 +482,6 @@ public partial class MainWindow : Window
     {
         if (CurrentGrid is not null) CurrentGrid.SelectedItem = null;
         CloseInspector();
-    }
-
-    private void InspectorToggleMark_Click(object sender, RoutedEventArgs e)
-    {
-        if (_inspectedFile is null) return;
-        _inspectedFile.Selected = !_inspectedFile.Selected;
-        UpdateInspectorMarkText();
-        UpdateSelectionSummary();
     }
 
     private void InspectorDeleteSingle_Click(object sender, RoutedEventArgs e)
@@ -530,6 +495,7 @@ public partial class MainWindow : Window
         var grid = CurrentGrid;
         if (grid is null)
         {
+            ActionBar.Visibility = Visibility.Collapsed;
             DeleteButton.IsEnabled = false;
             return;
         }
@@ -538,12 +504,15 @@ public partial class MainWindow : Window
         int count = items.Count(f => f.Selected);
         long size = items.Where(f => f.Selected).Sum(f => f.Size);
 
-        SelectedSummaryText.Text = count > 0
-            ? $"{count:N0} selected · {FileEntry.FormatBytes(size)}"
-            : "0 selected";
+        // Action bar ONLY displays when files are selected (eliminates bottom-bar redundancy when 0 selected)
+        ActionBar.Visibility = count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
-        DeleteButton.Content = count > 0 ? $"Move Selected ({count:N0}) to Recycle Bin" : "Move Selected to Recycle Bin";
-        DeleteButton.IsEnabled = count > 0;
+        if (count > 0)
+        {
+            SelectedSummaryText.Text = $"{count:N0} selected · {FileEntry.FormatBytes(size)}";
+            DeleteButton.Content = $"Move Selected ({count:N0}) to Recycle Bin";
+            DeleteButton.IsEnabled = true;
+        }
 
         UpdateToggleButtonsState();
     }
@@ -574,7 +543,6 @@ public partial class MainWindow : Window
             if (ordered.Count > 0) ordered[0].Selected = false;
             for (int i = 1; i < ordered.Count; i++) ordered[i].Selected = true;
         }
-        UpdateInspectorMarkText();
         UpdateSelectionSummary();
     }
 
@@ -585,7 +553,6 @@ public partial class MainWindow : Window
         bool newState = !allSelected;
         foreach (var f in list) f.Selected = newState;
         if (btn is not null) btn.Content = newState ? "Deselect all" : "Select all";
-        UpdateInspectorMarkText();
         UpdateSelectionSummary();
     }
 

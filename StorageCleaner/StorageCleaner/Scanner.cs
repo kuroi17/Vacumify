@@ -49,38 +49,89 @@ public sealed class FileEntry : INotifyPropertyChanged
 
     public string FileCategory => ExtensionText switch
     {
-        "PDF" or "DOC" or "DOCX" or "TXT" or "MD" or "RTF" or "XLS" or "XLSX" or "PPT" or "PPTX" or "CSV" => "Document",
-        "CS" or "PY" or "JS" or "TS" or "JSON" or "HTML" or "CSS" or "XML" or "CPP" or "C" or "H" or "JAVA" or "GO" or "RS" or "PHP" or "SH" or "BAT" or "PS1" => "Code",
-        "PNG" or "JPG" or "JPEG" or "GIF" or "WEBP" or "BMP" or "SVG" or "ICO" or "MP4" or "MKV" or "MOV" or "AVI" or "MP3" or "WAV" or "FLAC" => "Media",
+        "PDF" => "PDF",
+        "XLS" or "XLSX" or "CSV" => "Excel",
+        "DOC" or "DOCX" or "RTF" => "Word",
+        "PPT" or "PPTX" => "PowerPoint",
+        "CS" or "PY" or "JS" or "TS" or "JSON" or "HTML" or "CSS" or "XML" or "CPP" or "C" or "H" or "JAVA" or "GO" or "RS" or "PHP" or "SH" or "BAT" or "PS1" or "SQL" => "Code",
+        "PNG" or "JPG" or "JPEG" or "GIF" or "WEBP" or "BMP" or "SVG" or "ICO" => "Image",
+        "MP4" or "MKV" or "MOV" or "AVI" or "WEBM" or "FLV" => "Video",
+        "MP3" or "WAV" or "FLAC" or "AAC" or "OGG" or "M4A" => "Audio",
         "ZIP" or "RAR" or "7Z" or "TAR" or "GZ" or "BZ2" or "ISO" => "Archive",
+        "TXT" or "MD" or "LOG" => "Text",
         _ => "Other"
     };
 
+    public string IconResourceKey => FileCategory switch
+    {
+        "PDF" => "FileIconPdf",
+        "Excel" => "FileIconExcel",
+        "Word" => "FileIconWord",
+        "PowerPoint" => "FileIconPowerPoint",
+        "Code" => "FileIconCode",
+        "Image" => "FileIconImage",
+        "Video" => "FileIconVideo",
+        "Audio" => "FileIconAudio",
+        "Archive" => "FileIconArchive",
+        "Text" => "FileIconText",
+        _ => "FileIconGeneric"
+    };
+
+    public System.Windows.Media.ImageSource? IconImage
+    {
+        get
+        {
+            if (System.Windows.Application.Current is not null && System.Windows.Application.Current.Resources.Contains(IconResourceKey))
+            {
+                return System.Windows.Application.Current.Resources[IconResourceKey] as System.Windows.Media.ImageSource;
+            }
+            return null;
+        }
+    }
+
     public string TypeBadgeBg => FileCategory switch
     {
-        "Document" => "#EFF6FF",
-        "Code" => "#F5F3FF",
-        "Media" => "#ECFDF5",
-        "Archive" => "#F8FAFC",
+        "PDF" => "#FEF2F2",
+        "Excel" => "#F0FDF4",
+        "Word" => "#EFF6FF",
+        "PowerPoint" => "#FFF7ED",
+        "Code" => "#FAF5FF",
+        "Image" => "#FDF2F8",
+        "Video" => "#FFF1F2",
+        "Audio" => "#F0FDFA",
+        "Archive" => "#FFFBEB",
+        "Text" => "#F8FAFC",
         _ => "#F0F9FF"
     };
 
     public string TypeBadgeBorder => FileCategory switch
     {
-        "Document" => "#BAE6FD",
-        "Code" => "#DDD6FE",
-        "Media" => "#A7F3D0",
-        "Archive" => "#E2E8F0",
+        "PDF" => "#FECACA",
+        "Excel" => "#BBF7D0",
+        "Word" => "#BFDBFE",
+        "PowerPoint" => "#FED7AA",
+        "Code" => "#E9D5FF",
+        "Image" => "#FBCFE8",
+        "Video" => "#FECDD3",
+        "Audio" => "#99F6E4",
+        "Archive" => "#FDE68A",
+        "Text" => "#E2E8F0",
         _ => "#BAE6FD"
     };
 
     public string TypeBadgeFg => FileCategory switch
     {
-        "Document" => "#0284C7",
-        "Code" => "#6D28D9",
-        "Media" => "#047857",
-        "Archive" => "#475569",
-        _ => "#0369A1"
+        "PDF" => "#DC2626",
+        "Excel" => "#16A34A",
+        "Word" => "#2563EB",
+        "PowerPoint" => "#EA580C",
+        "Code" => "#7C3AED",
+        "Image" => "#DB2777",
+        "Video" => "#E11D48",
+        "Audio" => "#0D9488",
+        "Archive" => "#D97706",
+        "Text" => "#64748B",
+        _ => "#0284C7"
     };
 
     public static string FormatBytes(long bytes)

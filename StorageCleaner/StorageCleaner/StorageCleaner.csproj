@@ -13,5 +13,8 @@
     <Resource Include="Assets\vacumify-logo.png" />
     <Resource Include="Assets\vacumify.ico" />
     <Resource Include="Assets\Fonts\*.ttf" />
+    <Content Include="Assets\Icons\*.svg">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 </Project>
