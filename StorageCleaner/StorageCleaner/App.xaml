@@ -1,25 +1,121 @@
 <Application x:Class="Vacumify.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             ThemeMode="Light"
              StartupUri="MainWindow.xaml">
   <Application.Resources>
-    <!-- Light Blue Minimalistic Palette -->
-    <SolidColorBrush x:Key="PrimaryBlue" Color="#2563EB" />
-    <SolidColorBrush x:Key="PrimaryBlueHover" Color="#1D4ED8" />
-    <SolidColorBrush x:Key="SoftBlueBg" Color="#EFF6FF" />
-    <SolidColorBrush x:Key="SoftBlueBorder" Color="#CFE0FA" />
+    <!-- Calm Sky-Blue Palette & Design Tokens -->
+    <SolidColorBrush x:Key="SkyPrimary" Color="#0284C7" />
+    <SolidColorBrush x:Key="SkyPrimaryHover" Color="#0369A1" />
+    <SolidColorBrush x:Key="SkySoftBg" Color="#E0F2FE" />
+    <SolidColorBrush x:Key="SkyTintSurface" Color="#EAF4FF" />
+    <SolidColorBrush x:Key="SkyInspectorBg" Color="#F1F8FF" />
+    <SolidColorBrush x:Key="SkyHairline" Color="#D6E7FA" />
     <SolidColorBrush x:Key="TextPrimary" Color="#0F172A" />
-    <SolidColorBrush x:Key="TextSecondary" Color="#64748B" />
+    <SolidColorBrush x:Key="TextSecondary" Color="#475569" />
+    <SolidColorBrush x:Key="TextMuted" Color="#64748B" />
     <SolidColorBrush x:Key="DangerRed" Color="#DC2626" />
     <SolidColorBrush x:Key="DangerRedHover" Color="#B91C1C" />
 
-    <!-- Primary Rounded Button -->
+    <!-- Modern Calm Typography (Calm, legible, non-harsh) -->
+    <FontFamily x:Key="DisplayFont">Segoe UI Variable Display, Segoe UI Variable Text, pack://application:,,,/Assets/Fonts/#Plus Jakarta Sans, Segoe UI, sans-serif</FontFamily>
+    <FontFamily x:Key="BodyFont">Segoe UI Variable Text, pack://application:,,,/Assets/Fonts/#Plus Jakarta Sans, Segoe UI, sans-serif</FontFamily>
+    <FontFamily x:Key="MonoFont">pack://application:,,,/Assets/Fonts/#JetBrains Mono, Consolas, Courier New</FontFamily>
+
+    <!-- Crisp, Modern CheckBox with No Left/Right Clipping -->
+    <Style TargetType="CheckBox">
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="FontFamily" Value="{StaticResource BodyFont}"/>
+      <Setter Property="FontWeight" Value="Normal"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="CheckBox">
+            <Grid VerticalAlignment="Center">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <Border x:Name="Box" Grid.Column="0" Width="16" Height="16" CornerRadius="4"
+                      Background="#FFFFFF" BorderBrush="#94A3B8" BorderThickness="1.2"
+                      VerticalAlignment="Center" HorizontalAlignment="Center">
+                <Path x:Name="CheckGlyph" Data="M3,8 L6.5,11.5 L13,4" Stroke="#0284C7" StrokeThickness="1.8"
+                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" Stretch="Uniform"
+                      Width="10" Height="10" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+              </Border>
+              <ContentPresenter Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="Box" Property="Background" Value="#EFF6FF"/>
+                <Setter TargetName="Box" Property="BorderBrush" Value="#0284C7"/>
+                <Setter TargetName="CheckGlyph" Property="Visibility" Value="Visible"/>
+              </Trigger>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Box" Property="BorderBrush" Value="#0284C7"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="Box" Property="Opacity" Value="0.45"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <DropShadowEffect x:Key="SoftSkyShadow" Color="#0284C7" Opacity="0.06" BlurRadius="16" ShadowDepth="3" Direction="270" />
+
+    <!-- Smooth Scalable Sky-Blue Loading Spinner -->
+    <Style x:Key="LoadingSpinner" TargetType="Control">
+      <Setter Property="Width" Value="26"/>
+      <Setter Property="Height" Value="26"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Control">
+            <Viewbox Stretch="Uniform">
+              <Grid Width="28" Height="28" RenderTransformOrigin="0.5,0.5">
+                <Grid.RenderTransform>
+                  <RotateTransform x:Name="SpinTransform" Angle="0"/>
+                </Grid.RenderTransform>
+                <Ellipse Width="25" Height="25" Stroke="#D5E9FC" StrokeThickness="3"/>
+                <Path Data="M 14,1.5 A 12.5,12.5 0 0 1 26.5,14" Stroke="#0284C7" StrokeThickness="3"
+                      StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                <Grid.Triggers>
+                  <EventTrigger RoutedEvent="Loaded">
+                    <BeginStoryboard>
+                      <Storyboard RepeatBehavior="Forever">
+                        <DoubleAnimation Storyboard.TargetName="SpinTransform" Storyboard.TargetProperty="Angle"
+                                         From="0" To="360" Duration="0:0:0.85"/>
+                      </Storyboard>
+                    </BeginStoryboard>
+                  </EventTrigger>
+                </Grid.Triggers>
+              </Grid>
+            </Viewbox>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- Card Icon Badge -->
+    <Style x:Key="CardIconBadge" TargetType="Border">
+      <Setter Property="Width" Value="34"/>
+      <Setter Property="Height" Value="34"/>
+      <Setter Property="CornerRadius" Value="9"/>
+      <Setter Property="Background" Value="#EFF8FF"/>
+      <Setter Property="BorderBrush" Value="#D6EBFC"/>
+      <Setter Property="BorderThickness" Value="1"/>
+    </Style>
+
+    <!-- Primary Sky-Blue Button -->
     <Style TargetType="Button">
       <Setter Property="Padding" Value="16,8" />
       <Setter Property="Cursor" Value="Hand" />
-      <Setter Property="Background" Value="#2563EB" />
+      <Setter Property="Background" Value="{StaticResource SkyPrimary}" />
       <Setter Property="Foreground" Value="White" />
       <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="FontFamily" Value="{StaticResource BodyFont}" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="FontSize" Value="13" />
       <Setter Property="Template">
@@ -28,12 +124,12 @@
             <Border x:Name="Bd" Background="{TemplateBinding Background}"
                     BorderBrush="{TemplateBinding BorderBrush}"
                     BorderThickness="{TemplateBinding BorderThickness}"
-                    CornerRadius="7" Padding="{TemplateBinding Padding}">
+                    CornerRadius="8" Padding="{TemplateBinding Padding}">
               <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="Bd" Property="Background" Value="#1D4ED8" />
+                <Setter TargetName="Bd" Property="Background" Value="{StaticResource SkyPrimaryHover}" />
               </Trigger>
               <Trigger Property="IsEnabled" Value="False">
                 <Setter TargetName="Bd" Property="Opacity" Value="0.45" />
@@ -44,14 +140,15 @@
       </Setter>
     </Style>
 
-    <!-- Secondary Soft-Blue Pill Button -->
+    <!-- Quiet Secondary Button -->
     <Style x:Key="SecondaryButton" TargetType="Button">
       <Setter Property="Padding" Value="12,7" />
       <Setter Property="Cursor" Value="Hand" />
-      <Setter Property="Background" Value="#F1F5FD" />
+      <Setter Property="Background" Value="#FFFFFF" />
       <Setter Property="Foreground" Value="#1E293B" />
-      <Setter Property="BorderBrush" Value="#D6E4FA" />
+      <Setter Property="BorderBrush" Value="{StaticResource SkyHairline}" />
       <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="FontFamily" Value="{StaticResource BodyFont}" />
       <Setter Property="FontWeight" Value="Medium" />
       <Setter Property="FontSize" Value="12.5" />
       <Setter Property="Template">
@@ -60,13 +157,14 @@
             <Border x:Name="Bd" Background="{TemplateBinding Background}"
                     BorderBrush="{TemplateBinding BorderBrush}"
                     BorderThickness="{TemplateBinding BorderThickness}"
-                    CornerRadius="7" Padding="{TemplateBinding Padding}">
+                    CornerRadius="8" Padding="{TemplateBinding Padding}">
               <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="Bd" Property="Background" Value="#E2ECFC" />
-                <Setter TargetName="Bd" Property="BorderBrush" Value="#B4CEFA" />
+                <Setter TargetName="Bd" Property="Background" Value="#F0F8FF" />
+                <Setter TargetName="Bd" Property="BorderBrush" Value="#93C5FD" />
+                <Setter Property="Foreground" Value="{StaticResource SkyPrimaryHover}" />
               </Trigger>
               <Trigger Property="IsEnabled" Value="False">
                 <Setter TargetName="Bd" Property="Opacity" Value="0.45" />
@@ -79,16 +177,16 @@
 
     <!-- Danger Button (Recycle Bin) -->
     <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-      <Setter Property="Background" Value="#DC2626" />
+      <Setter Property="Background" Value="{StaticResource DangerRed}" />
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Button">
-            <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="7" Padding="{TemplateBinding Padding}">
+            <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}">
               <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="Bd" Property="Background" Value="#B91C1C" />
+                <Setter TargetName="Bd" Property="Background" Value="{StaticResource DangerRedHover}" />
               </Trigger>
               <Trigger Property="IsEnabled" Value="False">
                 <Setter TargetName="Bd" Property="Opacity" Value="0.4" />
@@ -99,11 +197,42 @@
       </Setter>
     </Style>
 
-    <!-- Actionable Overview Card Button -->
-    <Style x:Key="ActionCardButton" TargetType="Button">
+    <!-- Left Sidebar Quick-Target Item Button -->
+    <Style x:Key="SidebarTargetButton" TargetType="Button">
       <Setter Property="Cursor" Value="Hand" />
-      <Setter Property="Background" Value="#FAFCFF" />
-      <Setter Property="BorderBrush" Value="#DCE8FA" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="#334155" />
+      <Setter Property="FontFamily" Value="{StaticResource BodyFont}" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="Padding" Value="10,8" />
+      <Setter Property="Margin" Value="0,1" />
+      <Setter Property="HorizontalContentAlignment" Value="Left" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center" />
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#DCEEFF" />
+                <Setter Property="Foreground" Value="{StaticResource SkyPrimaryHover}" />
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="Bd" Property="Opacity" Value="0.5" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- Concept 4 Bento Clickable Tile -->
+    <Style x:Key="BentoTileButton" TargetType="Button">
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Background" Value="#FFFFFF" />
+      <Setter Property="BorderBrush" Value="{StaticResource SkyHairline}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
       <Setter Property="VerticalContentAlignment" Value="Stretch" />
@@ -113,13 +242,13 @@
             <Border x:Name="Bd" Background="{TemplateBinding Background}"
                     BorderBrush="{TemplateBinding BorderBrush}"
                     BorderThickness="{TemplateBinding BorderThickness}"
-                    CornerRadius="10" Padding="18,16">
+                    CornerRadius="12" Padding="20,18">
               <ContentPresenter />
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="Bd" Property="Background" Value="#EFF6FF" />
-                <Setter TargetName="Bd" Property="BorderBrush" Value="#93C5FD" />
+                <Setter TargetName="Bd" Property="Background" Value="#F3F9FF" />
+                <Setter TargetName="Bd" Property="BorderBrush" Value="#7DD3FC" />
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -127,8 +256,8 @@
       </Setter>
     </Style>
 
-    <!-- Modern Segmented Pill Tabs -->
-    <Style x:Key="PillTabControl" TargetType="TabControl">
+    <!-- Concept 5 Swiss Editorial Underline Tabs (StackPanel prevents header clipping) -->
+    <Style x:Key="UnderlineTabControl" TargetType="TabControl">
       <Setter Property="BorderThickness" Value="0" />
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="Template">
@@ -139,13 +268,10 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
               </Grid.RowDefinitions>
-              <Border Grid.Row="0" Background="#E6EFFC" CornerRadius="9" Padding="4"
-                      HorizontalAlignment="Left" Margin="0,0,0,12">
-                <TabPanel IsItemsHost="True" />
+              <Border Grid.Row="0" BorderBrush="{StaticResource SkyHairline}" BorderThickness="0,0,0,1" Margin="0,0,0,0">
+                <StackPanel Orientation="Horizontal" IsItemsHost="True" />
               </Border>
-              <Border Grid.Row="1" Background="#FFFFFF" BorderBrush="#D6E4FA" BorderThickness="1" CornerRadius="10">
-                <ContentPresenter ContentSource="SelectedContent" />
-              </Border>
+              <ContentPresenter Grid.Row="1" ContentSource="SelectedContent" />
             </Grid>
           </ControlTemplate>
         </Setter.Value>
@@ -154,20 +280,25 @@
 
     <Style TargetType="TabItem">
       <Setter Property="Cursor" Value="Hand" />
-      <Setter Property="FontSize" Value="13" />
+      <Setter Property="Width" Value="Auto" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="MaxWidth" Value="9999" />
+      <Setter Property="FontFamily" Value="{StaticResource BodyFont}" />
+      <Setter Property="FontSize" Value="13.5" />
       <Setter Property="FontWeight" Value="Medium" />
-      <Setter Property="Foreground" Value="#475569" />
-      <Setter Property="Padding" Value="14,7" />
+      <Setter Property="Foreground" Value="#64748B" />
+      <Setter Property="Padding" Value="4,10,4,10" />
+      <Setter Property="Margin" Value="0,0,24,0" />
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="TabItem">
-            <Border x:Name="Pill" Background="Transparent" CornerRadius="6" Padding="{TemplateBinding Padding}" Margin="0,0,2,0">
-              <ContentPresenter ContentSource="Header" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            <Border x:Name="Underline" Background="Transparent" BorderBrush="Transparent" BorderThickness="0,0,0,2.5" Padding="{TemplateBinding Padding}">
+              <ContentPresenter ContentSource="Header" HorizontalAlignment="Left" VerticalAlignment="Center" />
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsSelected" Value="True">
-                <Setter TargetName="Pill" Property="Background" Value="#FFFFFF" />
-                <Setter Property="Foreground" Value="#1D4ED8" />
+                <Setter TargetName="Underline" Property="BorderBrush" Value="{StaticResource SkyPrimary}" />
+                <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
                 <Setter Property="FontWeight" Value="SemiBold" />
               </Trigger>
               <MultiTrigger>
@@ -175,8 +306,7 @@
                   <Condition Property="IsMouseOver" Value="True" />
                   <Condition Property="IsSelected" Value="False" />
                 </MultiTrigger.Conditions>
-                <Setter TargetName="Pill" Property="Background" Value="#DAE7FA" />
-                <Setter Property="Foreground" Value="#0F172A" />
+                <Setter Property="Foreground" Value="{StaticResource SkyPrimaryHover}" />
               </MultiTrigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -184,25 +314,35 @@
       </Setter>
     </Style>
 
-    <!-- Clean DataGrid Styling -->
-    <Style TargetType="DataGrid">
-      <Setter Property="Background" Value="White" />
-      <Setter Property="BorderThickness" Value="0" />
-      <Setter Property="RowHeight" Value="34" />
+    <!-- Concept 5 Airy Borderless DataGrid Ledger (Calm, Non-Bold Body Text) -->
+    <Style TargetType="DataGridRow">
+      <Setter Property="FontWeight" Value="Normal" />
       <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="FontFamily" Value="{StaticResource BodyFont}" />
       <Setter Property="Foreground" Value="#1E293B" />
-      <Setter Property="HorizontalGridLinesBrush" Value="#F1F5F9" />
-      <Setter Property="RowBackground" Value="White" />
-      <Setter Property="AlternatingRowBackground" Value="#FAFBFD" />
+    </Style>
+
+    <Style TargetType="DataGrid">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="RowHeight" Value="38" />
+      <Setter Property="FontFamily" Value="{StaticResource BodyFont}" />
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="FontWeight" Value="Normal" />
+      <Setter Property="Foreground" Value="#1E293B" />
+      <Setter Property="HorizontalGridLinesBrush" Value="#EDF4FC" />
+      <Setter Property="RowBackground" Value="Transparent" />
+      <Setter Property="AlternatingRowBackground" Value="#FAFCFF" />
       <Setter Property="ColumnHeaderStyle">
         <Setter.Value>
           <Style TargetType="DataGridColumnHeader">
-            <Setter Property="Background" Value="#F4F8FF" />
-            <Setter Property="Foreground" Value="#475569" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="Padding" Value="10,8" />
-            <Setter Property="BorderBrush" Value="#E2ECFA" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="#64748B" />
+            <Setter Property="FontFamily" Value="{StaticResource BodyFont}" />
+            <Setter Property="FontWeight" Value="Medium" />
+            <Setter Property="FontSize" Value="11.5" />
+            <Setter Property="Padding" Value="10,10" />
+            <Setter Property="BorderBrush" Value="{StaticResource SkyHairline}" />
             <Setter Property="BorderThickness" Value="0,0,0,1" />
           </Style>
         </Setter.Value>
@@ -210,8 +350,9 @@
       <Setter Property="CellStyle">
         <Setter.Value>
           <Style TargetType="DataGridCell">
-            <Setter Property="Padding" Value="8,0" />
+            <Setter Property="Padding" Value="10,0" />
             <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="FontWeight" Value="Normal" />
             <Setter Property="Template">
               <Setter.Value>
                 <ControlTemplate TargetType="DataGridCell">
@@ -223,7 +364,7 @@
             </Setter>
             <Style.Triggers>
               <Trigger Property="IsSelected" Value="True">
-                <Setter Property="Background" Value="#EFF6FF" />
+                <Setter Property="Background" Value="#E6F4FE" />
                 <Setter Property="Foreground" Value="#0F172A" />
               </Trigger>
             </Style.Triggers>

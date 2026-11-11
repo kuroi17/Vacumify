@@ -37,6 +37,52 @@ public sealed class FileEntry : INotifyPropertyChanged
     public string AccessedText => LastAccessUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
     public string ModifiedText => LastWriteUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
 
+    public string ExtensionText
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(Path)) return "FILE";
+            var ext = System.IO.Path.GetExtension(Path).TrimStart('.').ToUpperInvariant();
+            return string.IsNullOrEmpty(ext) ? "FILE" : (ext.Length > 6 ? ext[..6] : ext);
+        }
+    }
+
+    public string FileCategory => ExtensionText switch
+    {
+        "PDF" or "DOC" or "DOCX" or "TXT" or "MD" or "RTF" or "XLS" or "XLSX" or "PPT" or "PPTX" or "CSV" => "Document",
+        "CS" or "PY" or "JS" or "TS" or "JSON" or "HTML" or "CSS" or "XML" or "CPP" or "C" or "H" or "JAVA" or "GO" or "RS" or "PHP" or "SH" or "BAT" or "PS1" => "Code",
+        "PNG" or "JPG" or "JPEG" or "GIF" or "WEBP" or "BMP" or "SVG" or "ICO" or "MP4" or "MKV" or "MOV" or "AVI" or "MP3" or "WAV" or "FLAC" => "Media",
+        "ZIP" or "RAR" or "7Z" or "TAR" or "GZ" or "BZ2" or "ISO" => "Archive",
+        _ => "Other"
+    };
+
+    public string TypeBadgeBg => FileCategory switch
+    {
+        "Document" => "#EFF6FF",
+        "Code" => "#F5F3FF",
+        "Media" => "#ECFDF5",
+        "Archive" => "#F8FAFC",
+        _ => "#F0F9FF"
+    };
+
+    public string TypeBadgeBorder => FileCategory switch
+    {
+        "Document" => "#BAE6FD",
+        "Code" => "#DDD6FE",
+        "Media" => "#A7F3D0",
+        "Archive" => "#E2E8F0",
+        _ => "#BAE6FD"
+    };
+
+    public string TypeBadgeFg => FileCategory switch
+    {
+        "Document" => "#0284C7",
+        "Code" => "#6D28D9",
+        "Media" => "#047857",
+        "Archive" => "#475569",
+        _ => "#0369A1"
+    };
+
     public static string FormatBytes(long bytes)
     {
         string[] units = ["B", "KB", "MB", "GB", "TB"];
@@ -88,6 +134,12 @@ public static class Scanner
         "node_modules",
         ".git",
         ".vs"
+    };
+
+    private static readonly HashSet<string> HiddenDevFolders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "venv",
+        "__pycache__"
     };
 
     public static async Task<ScanResult> ScanAsync(
@@ -415,7 +467,7 @@ public static class Scanner
         if (IsProtectedRoot(canonicalPath)) return true;
         if (canonicalRoots.Contains(canonicalPath)) return false;
         if (AlwaysExcludedFolders.Contains(folderName)) return true;
-        if (!includeHiddenCaches && folderName.StartsWith('.')) return true;
+        if (!includeHiddenCaches && (folderName.StartsWith('.') || HiddenDevFolders.Contains(folderName))) return true;
         return false;
     }
 

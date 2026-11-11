@@ -28,3 +28,6 @@ publish/
 # Scratch & temporary
 scratch/
 .idea/
+.playwright-mcp/
+download.png
+images.jpg

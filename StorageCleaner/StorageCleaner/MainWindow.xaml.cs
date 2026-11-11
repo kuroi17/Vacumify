@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.VisualBasic.FileIO;
 using Microsoft.Win32;
@@ -16,6 +17,7 @@ public partial class MainWindow : Window
     private List<FileEntry> _large = [];
     private CancellationTokenSource? _scanCts;
     private ScanResult? _lastResult;
+    private FileEntry? _inspectedFile;
     private readonly DispatcherTimer _filterTimer;
 
     public MainWindow()
@@ -35,6 +37,7 @@ public partial class MainWindow : Window
             defaultPath = "C:\\Users";
         }
         RootsBox.Text = defaultPath;
+        DrawDonutChart(0, 0, 0, 0);
         UpdateTabContext();
     }
 
@@ -55,17 +58,23 @@ public partial class MainWindow : Window
         );
 
         _scanCts = new CancellationTokenSource();
+        ResultsTabs.SelectedIndex = 0;
         SetScanning(true);
-        ScanBadge.Visibility = Visibility.Collapsed;
+        CloseInspector();
         ErrorSummary.Text = "";
-        StatusText.Text = "Scanning selected locations…";
+        ScanTimingText.Visibility = Visibility.Collapsed;
+        ScanStageText.Text = "Starting scan…";
+        ScanProgressCountText.Text = "0 files · 0 B";
+        ScanCurrentPathText.Text = "";
         var sw = Stopwatch.StartNew();
 
         try
         {
             var progress = new Progress<ScanProgress>(p =>
             {
-                StatusText.Text = $"{p.Stage} · {p.Files:N0} files · {FileEntry.FormatBytes(p.Bytes)} · {p.CurrentPath}";
+                ScanStageText.Text = $"{p.Stage}…";
+                ScanProgressCountText.Text = $"{p.Files:N0} files · {FileEntry.FormatBytes(p.Bytes)}";
+                ScanCurrentPathText.Text = p.CurrentPath;
             });
 
             var rootsCopy = roots.ToArray();
@@ -77,10 +86,10 @@ public partial class MainWindow : Window
             PopulateResults(_lastResult.Files);
 
             int failures = _lastResult.Errors.Count;
-            ScanBadgeText.Text = failures == 0
-                ? $"Done in {sw.Elapsed.TotalSeconds:0.0}s"
-                : $"Done in {sw.Elapsed.TotalSeconds:0.0}s · {failures:N0} skipped";
-            ScanBadge.Visibility = Visibility.Visible;
+            ScanTimingText.Text = failures == 0
+                ? $"Scanned in {sw.Elapsed.TotalSeconds:0.0}s"
+                : $"Scanned in {sw.Elapsed.TotalSeconds:0.0}s · {failures:N0} skipped";
+            ScanTimingText.Visibility = Visibility.Visible;
             ErrorSummary.Text = failures == 0 ? "" : $"{failures:N0} skipped";
 
             if (failures > 0)
@@ -92,8 +101,8 @@ public partial class MainWindow : Window
         }
         catch (OperationCanceledException)
         {
-            ScanBadgeText.Text = "Cancelled";
-            ScanBadge.Visibility = Visibility.Visible;
+            ScanTimingText.Text = "Scan cancelled";
+            ScanTimingText.Visibility = Visibility.Visible;
         }
         catch (Exception ex)
         {
@@ -151,14 +160,127 @@ public partial class MainWindow : Window
         LargeGrid.ItemsSource = _large;
 
         ForgottenCount.Text = _forgotten.Count.ToString("N0");
-        DuplicateCount.Text = _duplicates.Count.ToString("N0");
         LargeCount.Text = _large.Count.ToString("N0");
 
         ForgottenTab.Header = $"Forgotten ({_forgotten.Count:N0})";
         DuplicatesTab.Header = $"Duplicates ({_duplicates.Count:N0})";
         LargeTab.Header = $"Large ({_large.Count:N0})";
 
+        UpdateOverviewVisuals(files, _lastResult?.BytesScanned ?? 0, _lastResult?.ReclaimableDuplicateBytes ?? 0);
         UpdateSelectionSummary();
+    }
+
+    private void UpdateOverviewVisuals(IReadOnlyList<FileEntry> files, long totalBytes, long reclaimableDupBytes)
+    {
+        if (totalBytes <= 0 || files.Count == 0)
+        {
+            DrawDonutChart(0, 0, 0, 0);
+            LegendDupText.Text = "Duplicates";
+            LegendLargeText.Text = "Large";
+            LegendForgottenText.Text = "Forgotten";
+            return;
+        }
+
+        int days = ReadSelectedTag(AgeFilter, 30);
+        long sizeThreshold = ReadSelectedTag(SizeFilter, 100L * 1024 * 1024);
+        DateTime cutoff = DateTime.UtcNow.AddDays(-days);
+
+        long largeOtherBytes = 0;
+        long forgottenOtherBytes = 0;
+        foreach (var f in files)
+        {
+            if (f.DuplicateGroupCount > 1) continue;
+            if (f.Size >= sizeThreshold) largeOtherBytes += f.Size;
+            else if (f.LastAccessUtc <= cutoff) forgottenOtherBytes += f.Size;
+        }
+
+        long dupBytes = Math.Min(reclaimableDupBytes, totalBytes);
+        long otherBytes = Math.Max(0, totalBytes - dupBytes - largeOtherBytes - forgottenOtherBytes);
+
+        LegendDupText.Text = $"Duplicates ({FileEntry.FormatBytes(dupBytes)})";
+        LegendLargeText.Text = $"Large ({FileEntry.FormatBytes(largeOtherBytes)})";
+        LegendForgottenText.Text = $"Forgotten ({FileEntry.FormatBytes(forgottenOtherBytes)})";
+
+        DrawDonutChart(dupBytes, largeOtherBytes, forgottenOtherBytes, otherBytes);
+    }
+
+    private void DrawDonutChart(long dupBytes, long largeBytes, long forgottenBytes, long otherBytes)
+    {
+        DonutCanvas.Children.Clear();
+        const double cx = 100, cy = 100, r = 78, stroke = 22;
+        long total = dupBytes + largeBytes + forgottenBytes + otherBytes;
+
+        if (total <= 0)
+        {
+            var track = new System.Windows.Shapes.Ellipse
+            {
+                Width = r * 2,
+                Height = r * 2,
+                Stroke = new SolidColorBrush(Color.FromRgb(0xDC, 0xEC, 0xFB)),
+                StrokeThickness = stroke
+            };
+            Canvas.SetLeft(track, cx - r);
+            Canvas.SetTop(track, cy - r);
+            DonutCanvas.Children.Add(track);
+            DonutCenterText.Text = "—";
+            return;
+        }
+
+        int pct = (int)Math.Round(dupBytes * 100.0 / total);
+        DonutCenterText.Text = $"{pct}%";
+
+        (long Bytes, Color Color)[] slices =
+        [
+            (dupBytes, Color.FromRgb(0x02, 0x84, 0xC7)),
+            (largeBytes, Color.FromRgb(0x38, 0xBD, 0xF8)),
+            (forgottenBytes, Color.FromRgb(0xBA, 0xE6, 0xFD)),
+            (otherBytes, Color.FromRgb(0xE2, 0xEE, 0xFC))
+        ];
+
+        double startAngle = 0;
+        foreach (var (bytes, color) in slices)
+        {
+            if (bytes <= 0) continue;
+            double sweep = bytes * 360.0 / total;
+            var brush = new SolidColorBrush(color);
+
+            if (sweep >= 359.8)
+            {
+                var full = new System.Windows.Shapes.Ellipse
+                {
+                    Width = r * 2,
+                    Height = r * 2,
+                    Stroke = brush,
+                    StrokeThickness = stroke
+                };
+                Canvas.SetLeft(full, cx - r);
+                Canvas.SetTop(full, cy - r);
+                DonutCanvas.Children.Add(full);
+                break;
+            }
+
+            double a1 = (startAngle - 90.0) * Math.PI / 180.0;
+            double a2 = (startAngle + sweep - 90.0) * Math.PI / 180.0;
+            var p1 = new Point(cx + r * Math.Cos(a1), cy + r * Math.Sin(a1));
+            var p2 = new Point(cx + r * Math.Cos(a2), cy + r * Math.Sin(a2));
+
+            var fig = new PathFigure { StartPoint = p1, IsClosed = false };
+            fig.Segments.Add(new ArcSegment(p2, new Size(r, r), 0, sweep > 180.0, SweepDirection.Clockwise, true));
+
+            var geom = new PathGeometry();
+            geom.Figures.Add(fig);
+
+            DonutCanvas.Children.Add(new System.Windows.Shapes.Path
+            {
+                Data = geom,
+                Stroke = brush,
+                StrokeThickness = stroke,
+                StrokeStartLineCap = PenLineCap.Flat,
+                StrokeEndLineCap = PenLineCap.Flat
+            });
+
+            startAngle += sweep;
+        }
     }
 
     private void SubscribeEvents(IReadOnlyList<FileEntry> items)
@@ -175,6 +297,10 @@ public partial class MainWindow : Window
         if (e.PropertyName == nameof(FileEntry.Selected))
         {
             UpdateSelectionSummary();
+            if (ReferenceEquals(sender, _inspectedFile))
+            {
+                UpdateInspectorMarkText();
+            }
         }
     }
 
@@ -204,13 +330,53 @@ public partial class MainWindow : Window
         ScanButton.Visibility = scanning ? Visibility.Collapsed : Visibility.Visible;
         CancelButton.Visibility = scanning ? Visibility.Visible : Visibility.Collapsed;
         RootsBox.IsEnabled = !scanning;
+        AddFolderButton.IsEnabled = !scanning;
         IncludeCachesCheck.IsEnabled = !scanning;
         MinDupSizeCombo.IsEnabled = !scanning;
         FastSampleCheck.IsEnabled = !scanning;
-        ProgressPanel.Visibility = scanning ? Visibility.Visible : Visibility.Collapsed;
+        ReviewDuplicatesBtn.IsEnabled = !scanning;
+
+        var resultVis = scanning ? Visibility.Collapsed : Visibility.Visible;
+        var spinnerVis = scanning ? Visibility.Visible : Visibility.Collapsed;
+
+        HeroResultPanel.Visibility = resultVis;
+        HeroLoadingPanel.Visibility = spinnerVis;
+
+        FilesCount.Visibility = resultVis;
+        FilesSpinner.Visibility = spinnerVis;
+
+        TotalScannedSize.Visibility = resultVis;
+        StorageSpinner.Visibility = spinnerVis;
+
+        ForgottenCount.Visibility = resultVis;
+        ForgottenSpinner.Visibility = spinnerVis;
+
+        LargeCount.Visibility = resultVis;
+        LargeSpinner.Visibility = spinnerVis;
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => _scanCts?.Cancel();
+
+    private void QuickTarget_Click(object sender, RoutedEventArgs e)
+    {
+        if (_scanCts is not null || sender is not Button btn || btn.Tag is not string key) return;
+
+        string userHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        string path = key switch
+        {
+            "UserHome" => userHome,
+            "Downloads" => Path.Combine(userHome, "Downloads"),
+            "Desktop" => Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+            "Documents" => Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            "Videos" => Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
+            _ => userHome
+        };
+
+        if (Directory.Exists(path))
+        {
+            RootsBox.Text = path;
+        }
+    }
 
     private void Browse_Click(object sender, RoutedEventArgs e)
     {
@@ -239,7 +405,124 @@ public partial class MainWindow : Window
         bool onFileTab = CurrentGrid is not null;
         ActionBar.Visibility = onFileTab ? Visibility.Visible : Visibility.Collapsed;
         ExtFilterPanel.Visibility = onFileTab ? Visibility.Visible : Visibility.Collapsed;
+
+        if (!onFileTab)
+        {
+            CloseInspector();
+        }
+        else if (CurrentGrid?.SelectedItem is FileEntry selected)
+        {
+            ShowInspector(selected);
+        }
+        else
+        {
+            CloseInspector();
+        }
+
         UpdateSelectionSummary();
+    }
+
+    private void Grid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded || sender is not DataGrid grid || !ReferenceEquals(grid, CurrentGrid)) return;
+
+        if (grid.SelectedItem is FileEntry item)
+        {
+            ShowInspector(item);
+        }
+        else
+        {
+            CloseInspector();
+        }
+    }
+
+    private void ShowInspector(FileEntry item)
+    {
+        _inspectedFile = item;
+        InspectorFileName.Text = item.Name;
+        InspectorFileSize.Text = item.SizeText;
+        InspectorFilePath.Text = item.Path;
+        InspectorAccessed.Text = item.AccessedText;
+        InspectorModified.Text = item.ModifiedText;
+        UpdateInspectorMarkText();
+
+        // Dynamic category icon and color badge
+        InspectorExtText.Text = item.ExtensionText;
+        if (ColorConverter.ConvertFromString(item.TypeBadgeBg) is Color bgCol)
+        {
+            InspectorExtBadge.Background = new SolidColorBrush(bgCol);
+            InspectorIconBadge.Background = new SolidColorBrush(bgCol);
+        }
+        if (ColorConverter.ConvertFromString(item.TypeBadgeBorder) is Color borderCol)
+        {
+            InspectorExtBadge.BorderBrush = new SolidColorBrush(borderCol);
+            InspectorIconBadge.BorderBrush = new SolidColorBrush(borderCol);
+        }
+        if (ColorConverter.ConvertFromString(item.TypeBadgeFg) is Color fgCol)
+        {
+            var brush = new SolidColorBrush(fgCol);
+            InspectorExtText.Foreground = brush;
+            InspectorIconPath.Stroke = brush;
+        }
+
+        InspectorIconPath.Data = Geometry.Parse(item.FileCategory switch
+        {
+            "Code" => "M8,9 L4,12 L8,15 M16,9 L20,12 L16,15 M13,7 L11,17",
+            "Media" => "M4,5 H20 V17 H4 Z M4,14 L8,10 L14,16 M13,13 L15,11 L20,16 M8,8 A1.5,1.5 0 1 1 8,7.99",
+            "Archive" => "M4,4 H20 V8 H4 Z M4,8 V19 C4,20 5,21 6,21 H18 C19,21 20,20 20,19 V8 M10,12 H14 M12,12 V15",
+            _ => "M6,2 H14 L19,7 V21 H6 Z M14,2 V7 H19"
+        });
+
+        if (item.DuplicateGroupCount > 1 && _lastResult is not null)
+        {
+            var siblings = _lastResult.Files
+                .Where(f => f.DuplicateGroupId == item.DuplicateGroupId && !string.Equals(f.Path, item.Path, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            long groupReclaimable = (item.DuplicateGroupCount - 1) * item.Size;
+            InspectorDupSummary.Text = $"Group #{item.DuplicateGroupId} · {item.DuplicateGroupCount} copies · {FileEntry.FormatBytes(groupReclaimable)} reclaimable";
+            InspectorSiblingsList.ItemsSource = siblings;
+            InspectorDupSection.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            InspectorSiblingsList.ItemsSource = null;
+            InspectorDupSection.Visibility = Visibility.Collapsed;
+        }
+
+        InspectorPanel.Visibility = Visibility.Visible;
+    }
+
+    private void UpdateInspectorMarkText()
+    {
+        if (_inspectedFile is null) return;
+        InspectorMarkButton.Content = _inspectedFile.Selected ? "Unmark from Recycle" : "Mark for Recycle";
+    }
+
+    private void CloseInspector()
+    {
+        _inspectedFile = null;
+        InspectorPanel.Visibility = Visibility.Collapsed;
+    }
+
+    private void CloseInspector_Click(object sender, RoutedEventArgs e)
+    {
+        if (CurrentGrid is not null) CurrentGrid.SelectedItem = null;
+        CloseInspector();
+    }
+
+    private void InspectorToggleMark_Click(object sender, RoutedEventArgs e)
+    {
+        if (_inspectedFile is null) return;
+        _inspectedFile.Selected = !_inspectedFile.Selected;
+        UpdateInspectorMarkText();
+        UpdateSelectionSummary();
+    }
+
+    private void InspectorDeleteSingle_Click(object sender, RoutedEventArgs e)
+    {
+        if (_inspectedFile is null) return;
+        MoveFilesToRecycleBin([_inspectedFile]);
     }
 
     private void UpdateSelectionSummary()
@@ -259,7 +542,20 @@ public partial class MainWindow : Window
             ? $"{count:N0} selected · {FileEntry.FormatBytes(size)}"
             : "0 selected";
 
+        DeleteButton.Content = count > 0 ? $"Move Selected ({count:N0}) to Recycle Bin" : "Move Selected to Recycle Bin";
         DeleteButton.IsEnabled = count > 0;
+
+        UpdateToggleButtonsState();
+    }
+
+    private void UpdateToggleButtonsState()
+    {
+        if (ForgottenToggleSelectBtn is not null && _forgotten.Count > 0)
+            ForgottenToggleSelectBtn.Content = _forgotten.All(f => f.Selected) ? "Deselect all" : "Select all";
+        if (DuplicatesToggleSelectBtn is not null && _duplicates.Count > 0)
+            DuplicatesToggleSelectBtn.Content = _duplicates.All(f => f.Selected) ? "Deselect all" : "Select all";
+        if (LargeToggleSelectBtn is not null && _large.Count > 0)
+            LargeToggleSelectBtn.Content = _large.All(f => f.Selected) ? "Deselect all" : "Select all";
     }
 
     private void JumpForgotten_Click(object sender, RoutedEventArgs e) => ResultsTabs.SelectedIndex = 1;
@@ -278,28 +574,31 @@ public partial class MainWindow : Window
             if (ordered.Count > 0) ordered[0].Selected = false;
             for (int i = 1; i < ordered.Count; i++) ordered[i].Selected = true;
         }
+        UpdateInspectorMarkText();
         UpdateSelectionSummary();
     }
 
-    private void SetAllSelected(List<FileEntry> list, bool selected)
+    private void ToggleSelectAll(List<FileEntry> list, Button? btn)
     {
-        foreach (var f in list) f.Selected = selected;
+        if (list.Count == 0) return;
+        bool allSelected = list.All(f => f.Selected);
+        bool newState = !allSelected;
+        foreach (var f in list) f.Selected = newState;
+        if (btn is not null) btn.Content = newState ? "Deselect all" : "Select all";
+        UpdateInspectorMarkText();
         UpdateSelectionSummary();
     }
 
     private void KeepNewest_Click(object sender, RoutedEventArgs e) => SelectDuplicatesByAge(keepNewest: true);
     private void KeepOldest_Click(object sender, RoutedEventArgs e) => SelectDuplicatesByAge(keepNewest: false);
-    private void DuplicatesSelectAll_Click(object sender, RoutedEventArgs e) => SetAllSelected(_duplicates, true);
-    private void DuplicatesDeselectAll_Click(object sender, RoutedEventArgs e) => SetAllSelected(_duplicates, false);
-    private void ForgottenSelectAll_Click(object sender, RoutedEventArgs e) => SetAllSelected(_forgotten, true);
-    private void ForgottenDeselectAll_Click(object sender, RoutedEventArgs e) => SetAllSelected(_forgotten, false);
-    private void LargeSelectAll_Click(object sender, RoutedEventArgs e) => SetAllSelected(_large, true);
-    private void LargeDeselectAll_Click(object sender, RoutedEventArgs e) => SetAllSelected(_large, false);
+    private void DuplicatesToggleSelect_Click(object sender, RoutedEventArgs e) => ToggleSelectAll(_duplicates, DuplicatesToggleSelectBtn);
+    private void ForgottenToggleSelect_Click(object sender, RoutedEventArgs e) => ToggleSelectAll(_forgotten, ForgottenToggleSelectBtn);
+    private void LargeToggleSelect_Click(object sender, RoutedEventArgs e) => ToggleSelectAll(_large, LargeToggleSelectBtn);
 
     private void OpenLocation_Click(object sender, RoutedEventArgs e)
     {
-        var grid = CurrentGrid;
-        if (grid?.SelectedItem is not FileEntry item)
+        var item = _inspectedFile ?? CurrentGrid?.SelectedItem as FileEntry;
+        if (item is null)
         {
             MessageBox.Show("Select a file row first.", "No file selected", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
@@ -336,14 +635,17 @@ public partial class MainWindow : Window
 
         var items = grid.ItemsSource as IReadOnlyList<FileEntry> ?? [];
         var selected = items.Where(f => f.Selected).ToList();
-        if (selected.Count == 0) return;
+        if (selected.Count > 0) MoveFilesToRecycleBin(selected);
+    }
 
-        long total = selected.Sum(f => f.Size);
-        string preview = string.Join(Environment.NewLine, selected.Take(6).Select(f => f.Path));
-        if (selected.Count > 6) preview += Environment.NewLine + $"…and {selected.Count - 6:N0} more.";
+    private void MoveFilesToRecycleBin(IReadOnlyList<FileEntry> targets)
+    {
+        long total = targets.Sum(f => f.Size);
+        string preview = string.Join(Environment.NewLine, targets.Take(6).Select(f => f.Path));
+        if (targets.Count > 6) preview += Environment.NewLine + $"…and {targets.Count - 6:N0} more.";
 
         var answer = MessageBox.Show(
-            $"Move {selected.Count:N0} file(s) ({FileEntry.FormatBytes(total)}) to the Windows Recycle Bin?\n\n{preview}",
+            $"Move {targets.Count:N0} file(s) ({FileEntry.FormatBytes(total)}) to the Windows Recycle Bin?\n\n{preview}",
             "Move to Recycle Bin",
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning,
@@ -353,7 +655,7 @@ public partial class MainWindow : Window
 
         int moved = 0, failed = 0;
         long movedBytes = 0;
-        foreach (var item in selected)
+        foreach (var item in targets)
         {
             try
             {
@@ -387,8 +689,13 @@ public partial class MainWindow : Window
             PopulateResults(remaining);
         }
 
-        ScanBadgeText.Text = $"Recycled {moved:N0} ({FileEntry.FormatBytes(movedBytes)})";
-        ScanBadge.Visibility = Visibility.Visible;
+        if (_inspectedFile is not null && !File.Exists(_inspectedFile.Path))
+        {
+            CloseInspector();
+        }
+
+        ScanTimingText.Text = $"Recycled {moved:N0} ({FileEntry.FormatBytes(movedBytes)})";
+        ScanTimingText.Visibility = Visibility.Visible;
 
         if (failed > 0)
         {

@@ -7,5 +7,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Vacumify</AssemblyName>
     <RootNamespace>Vacumify</RootNamespace>
+    <ApplicationIcon>Assets\vacumify.ico</ApplicationIcon>
   </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="Assets\vacumify-logo.png" />
+    <Resource Include="Assets\vacumify.ico" />
+    <Resource Include="Assets\Fonts\*.ttf" />
+  </ItemGroup>
 </Project>
