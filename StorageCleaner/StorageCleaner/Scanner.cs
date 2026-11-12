@@ -340,10 +340,10 @@ public static class Scanner
                                     string childPath = fsi.FullName.TrimEnd(Path.DirectorySeparatorChar);
 
                                     // Intercept dev caches & project packages (node_modules, venvs, target, bin/obj)
-                                    if (!IsProtectedRoot(childPath) && IsDevCacheFolder(fsi.Name, out string cacheType))
+                                    string parentDir = Path.GetDirectoryName(childPath) ?? "";
+                                    if (!IsProtectedRoot(childPath) && IsDevCacheFolder(fsi.Name, parentDir, out string cacheType))
                                     {
                                         long cacheBytes = FastGetDirectorySize(childPath);
-                                        string parentDir = Path.GetDirectoryName(childPath) ?? "";
                                         string projName = Path.GetFileName(parentDir);
                                         if (string.IsNullOrWhiteSpace(projName)) projName = fsi.Name;
 
@@ -599,7 +599,7 @@ public static class Scanner
         return safeList;
     }
 
-    public static bool IsDevCacheFolder(string folderName, out string cacheType)
+    public static bool IsDevCacheFolder(string folderName, string parentDir, out string cacheType)
     {
         if (string.Equals(folderName, "node_modules", StringComparison.OrdinalIgnoreCase))
         {
@@ -613,13 +613,15 @@ public static class Scanner
             cacheType = "Python venv";
             return true;
         }
-        if (string.Equals(folderName, "target", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(folderName, "target", StringComparison.OrdinalIgnoreCase) &&
+            ParentHasAnyFile(parentDir, "Cargo.toml", "pom.xml"))
         {
             cacheType = "Rust target";
             return true;
         }
-        if (string.Equals(folderName, "bin", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(folderName, "obj", StringComparison.OrdinalIgnoreCase))
+        if ((string.Equals(folderName, "bin", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(folderName, "obj", StringComparison.OrdinalIgnoreCase)) &&
+            ParentHasAnyFile(parentDir, "*.csproj", "*.fsproj", "*.vbproj", "*.sln"))
         {
             cacheType = ".NET bin/obj";
             return true;
@@ -631,6 +633,21 @@ public static class Scanner
         }
 
         cacheType = "";
+        return false;
+    }
+
+    private static bool ParentHasAnyFile(string parentDir, params string[] patterns)
+    {
+        if (string.IsNullOrWhiteSpace(parentDir) || !Directory.Exists(parentDir)) return false;
+        try
+        {
+            foreach (var pattern in patterns)
+            {
+                if (Directory.EnumerateFiles(parentDir, pattern, SearchOption.TopDirectoryOnly).Any())
+                    return true;
+            }
+        }
+        catch { }
         return false;
     }
 
@@ -709,5 +726,62 @@ public static class Scanner
     {
         return ProtectedRoots.Where(p => !string.IsNullOrWhiteSpace(p)).Any(root =>
             string.Equals(Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar), path, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public static (string Status, int DaysUntouched, string ProjectRoot) GetProjectActivity(string targetPath, DateTime fallbackLastWriteUtc)
+    {
+        string? dir = Directory.Exists(targetPath)
+            ? Path.GetDirectoryName(targetPath.TrimEnd(Path.DirectorySeparatorChar)) ?? targetPath
+            : Path.GetDirectoryName(targetPath);
+
+        string projectRoot = dir ?? "";
+        DateTime lastTouchUtc = fallbackLastWriteUtc;
+
+        try
+        {
+            string? current = dir;
+            for (int depth = 0; depth < 4 && !string.IsNullOrWhiteSpace(current); depth++)
+            {
+                if (IsProtectedRoot(current)) break;
+
+                string gitDir = Path.Combine(current, ".git");
+                if (Directory.Exists(gitDir))
+                {
+                    projectRoot = current;
+                    string gitHeadLog = Path.Combine(gitDir, "logs", "HEAD");
+                    string gitIndex = Path.Combine(gitDir, "index");
+                    if (File.Exists(gitHeadLog))
+                        lastTouchUtc = File.GetLastWriteTimeUtc(gitHeadLog);
+                    else if (File.Exists(gitIndex))
+                        lastTouchUtc = File.GetLastWriteTimeUtc(gitIndex);
+                    else
+                        lastTouchUtc = Directory.GetLastWriteTimeUtc(current);
+                    break;
+                }
+
+                bool hasProjectMarker = File.Exists(Path.Combine(current, "package.json"))
+                    || File.Exists(Path.Combine(current, "Cargo.toml"))
+                    || File.Exists(Path.Combine(current, "pyproject.toml"));
+                if (hasProjectMarker)
+                {
+                    projectRoot = current;
+                    lastTouchUtc = Directory.GetLastWriteTimeUtc(current);
+                    break;
+                }
+
+                current = Path.GetDirectoryName(current);
+            }
+        }
+        catch { }
+
+        int daysUntouched = Math.Max(0, (int)(DateTime.UtcNow - lastTouchUtc).TotalDays);
+        string status = daysUntouched switch
+        {
+            <= 14 => "ACTIVE",
+            <= 90 => "DORMANT",
+            _ => "ABANDONED"
+        };
+
+        return (status, daysUntouched, projectRoot);
     }
 }

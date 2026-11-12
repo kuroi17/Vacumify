@@ -36,7 +36,7 @@ public partial class App : Application
         if (e.Args.Length > 0 && e.Args.Any(a => a is "--help" or "-h" or "/?" or "--version" or "-v"))
         {
             AttachConsole(ATTACH_PARENT_PROCESS);
-            Console.WriteLine("Vacumify v1.0.0 — Modern Windows Storage Cleaner & Duplicate File Finder");
+            Console.WriteLine("Vacumify v1.1.0 — Modern Windows Storage Cleaner & Duplicate File Finder");
             Console.WriteLine("Usage:");
             Console.WriteLine("  Vacumify.exe            Launch the graphical desktop application");
             Console.WriteLine("  Vacumify.exe --mcp      Run the Model Context Protocol (MCP) server over stdio");

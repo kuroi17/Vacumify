@@ -56,41 +56,51 @@ StorageCleaner\StorageCleaner\bin\Release\net10.0-windows\win-x64\publish\Vacumi
 
 ## AI Agent Integration (Model Context Protocol / MCP)
 
-Vacumify includes a native **Model Context Protocol (MCP)** server over `stdio`, allowing AI coding agents to inspect disk usage and safely recycle clutter with native C# performance.
+Vacumify includes a standalone **Model Context Protocol (MCP)** server (`vacumify-mcp`) over `stdio`, allowing AI agents (**Claude Code**, **Cursor**, **Claude Desktop**, **Windsurf**, **Antigravity**) to audit disk space and safely recycle clutter without opening the GUI.
 
-### 4 Exposed MCP Tools:
-* `vacumify_scan`: Scans any workspace for identical duplicates, large files, and overall disk allocation.
-* `vacumify_get_dev_caches`: Detects dormant `node_modules`, `venv`, `bin`/`obj`, `target`, and Gradle folders.
-* `vacumify_get_safe_junk`: Identifies 100% zero-risk safe junk (duplicate copies #2..N, obsolete installers, crash dumps).
-* `vacumify_recycle_items`: Safely sends files or folders to the Windows Recycle Bin (supports `dryRun: true`).
+### Quick Install (npm / npx — Auto-downloads standalone binary)
 
-### Connect to Claude Desktop (`claude_desktop_config.json`):
+Run directly with zero setup:
+```bash
+npx -y vacumify-mcp
+```
+
+Or install globally:
+```bash
+npm install -g vacumify-mcp
+```
+
+#### Claude Code CLI:
+```bash
+claude mcp add vacumify npx -y vacumify-mcp
+```
+
+#### Claude Desktop / Cursor (`config.json`):
 ```json
 {
   "mcpServers": {
     "vacumify": {
-      "command": "C:\\path\\to\\Vacumify.exe",
-      "args": ["--mcp"]
+      "command": "npx",
+      "args": ["-y", "vacumify-mcp"]
     }
   }
 }
 ```
 
-### Connect to Claude Code CLI:
-```bash
-claude mcp add vacumify -- C:\path\to\Vacumify.exe --mcp
-```
+*(Alternatively, point directly to your local executable via `"command": "C:\\path\\to\\Vacumify.exe", "args": ["--mcp"]` or click **Connect AI / MCP** in the GUI sidebar.)*
 
-### Connect to Cursor IDE (`Settings > Features > MCP`):
-* **Name**: `vacumify`
-* **Type**: `command`
-* **Command**: `C:\path\to\Vacumify.exe --mcp`
+### 4 Exposed MCP Tools (with GUI Condition Parity & Project Activity Scoring):
+* `vacumify_scan`: Parallel scan supporting `forgottenDays` (default 30), `minLargeFileBytes` (default 100 MB), `minDuplicateBytes` (default 100 KB), `includeHidden`, and **Active vs Abandoned project scoring**.
+* `vacumify_get_dev_caches`: Detects dormant `node_modules`, Python `venv`, Rust `target`, .NET `bin`/`obj`, and Gradle caches with `olderThanDays` age filter and **Active vs Abandoned** protection.
+* `vacumify_get_safe_junk`: Identifies 100% zero-risk safe junk (duplicate copies #2..N, obsolete downloads installers, crash dumps).
+* `vacumify_recycle_items`: Safely sends files or folders to the **Windows Recycle Bin** (supports `dryRun: true`; never permanently deletes).
 
-### Run via Node / npx Wrapper:
-```bash
-set VACUMIFY_PATH=C:\path\to\Vacumify.exe
-npx vacumify-mcp
-```
+### 5 Native MCP Slash Prompts:
+* `/audit-storage` — Complete overview audit across duplicates, large files, forgotten files, and dormant dev caches.
+* `/duplicates` — Identify duplicate files with Keep Newest / Keep Oldest recommendation.
+* `/forgotten-files` — Surface untouched files matching `forgottenDays` threshold (7d, 15d, 30d, 60d, 90d+).
+* `/large-files` — Rank heavy storage hogs matching `minLargeFileMB` threshold (100 MB+, 500 MB+, 1 GB+).
+* `/dev-caches` — Isolate bloated build caches while protecting active projects.
 
 ## Safety & Privacy
 

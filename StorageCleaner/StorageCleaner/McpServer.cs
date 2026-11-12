@@ -24,12 +24,7 @@ public static class McpServer
         while (true)
         {
             string? line = reader.ReadLine();
-            if (line is null)
-            {
-                // Stdin closed (client disconnected)
-                break;
-            }
-
+            if (line is null) break;
             if (string.IsNullOrWhiteSpace(line)) continue;
 
             try
@@ -37,21 +32,18 @@ public static class McpServer
                 using var doc = JsonDocument.Parse(line);
                 var root = doc.RootElement;
 
-                // Notifications do not have an "id"
                 JsonElement? id = root.TryGetProperty("id", out var idProp) ? idProp : null;
                 string method = root.TryGetProperty("method", out var methodProp) ? methodProp.GetString() ?? "" : "";
                 JsonElement? @params = root.TryGetProperty("params", out var paramsProp) ? paramsProp : null;
 
                 if (string.IsNullOrEmpty(method)) continue;
 
-                // Handle notifications (no response needed)
                 if (id is null)
                 {
                     HandleNotification(method, @params);
                     continue;
                 }
 
-                // Handle requests (response required)
                 var response = HandleRequest(id.Value, method, @params);
                 if (response is not null)
                 {
@@ -79,15 +71,17 @@ public static class McpServer
     {
         return method switch
         {
-            "initialize" => HandleInitialize(id, @params),
+            "initialize" => HandleInitialize(id),
             "ping" => HandlePing(id),
             "tools/list" => HandleToolsList(id),
             "tools/call" => HandleToolsCall(id, @params),
+            "prompts/list" => HandlePromptsList(id),
+            "prompts/get" => HandlePromptsGet(id, @params),
             _ => CreateErrorResponse(id, -32601, $"Method not found: {method}")
         };
     }
 
-    private static JsonObject HandleInitialize(JsonElement id, JsonElement? @params)
+    private static JsonObject HandleInitialize(JsonElement id)
     {
         return new JsonObject
         {
@@ -98,12 +92,13 @@ public static class McpServer
                 ["protocolVersion"] = "2024-11-05",
                 ["capabilities"] = new JsonObject
                 {
-                    ["tools"] = new JsonObject()
+                    ["tools"] = new JsonObject(),
+                    ["prompts"] = new JsonObject()
                 },
                 ["serverInfo"] = new JsonObject
                 {
                     ["name"] = "vacumify",
-                    ["version"] = "1.0.0"
+                    ["version"] = "1.1.0"
                 }
             }
         };
@@ -126,7 +121,7 @@ public static class McpServer
             new JsonObject
             {
                 ["name"] = "vacumify_scan",
-                ["description"] = "Scans directories using Vacumify's parallel multi-core engine. Identifies exact duplicates via SHA-256 fingerprinting, large storage hogs, and forgotten files in seconds.",
+                ["description"] = "Scans directories using Vacumify's parallel multi-core engine. Identifies exact duplicates (SHA-256), large storage hogs, forgotten untouched files, and Active vs Abandoned project status.",
                 ["inputSchema"] = new JsonObject
                 {
                     ["type"] = "object",
@@ -135,17 +130,27 @@ public static class McpServer
                         ["path"] = new JsonObject
                         {
                             ["type"] = "string",
-                            ["description"] = "Directory path to scan (e.g. workspace, project directory, C:\\Users\\...)"
+                            ["description"] = "Directory path to scan (e.g. workspace, C:\\Users\\...)"
                         },
-                        ["includeHidden"] = new JsonObject
+                        ["forgottenDays"] = new JsonObject
                         {
-                            ["type"] = "boolean",
-                            ["description"] = "Whether to include hidden or dot folders (defaults to false)"
+                            ["type"] = "number",
+                            ["description"] = "Days untouched threshold to classify a file as forgotten (e.g. 7, 15, 30, 60, 90; defaults to 30)"
+                        },
+                        ["minLargeFileBytes"] = new JsonObject
+                        {
+                            ["type"] = "number",
+                            ["description"] = "Minimum file size in bytes to classify as a large file (e.g. 104857600 for 100MB, 524288000 for 500MB; defaults to 104857600)"
                         },
                         ["minDuplicateBytes"] = new JsonObject
                         {
                             ["type"] = "number",
                             ["description"] = "Minimum file size in bytes to check for duplicates (defaults to 102400 / 100 KB)"
+                        },
+                        ["includeHidden"] = new JsonObject
+                        {
+                            ["type"] = "boolean",
+                            ["description"] = "Whether to include hidden or dot folders (defaults to false)"
                         }
                     },
                     ["required"] = new JsonArray { "path" }
@@ -154,7 +159,7 @@ public static class McpServer
             new JsonObject
             {
                 ["name"] = "vacumify_get_dev_caches",
-                ["description"] = "Finds dormant developer artifact folders (node_modules, Python venv/.venv, Rust target, .NET bin/obj, Gradle) with their project names and calculated sizes without traversing hundreds of thousands of subfiles.",
+                ["description"] = "Finds dormant developer artifact folders (node_modules, Python venv/.venv, Rust target, .NET bin/obj, Gradle) with sizes, age filter, and Active vs Abandoned project scoring.",
                 ["inputSchema"] = new JsonObject
                 {
                     ["type"] = "object",
@@ -164,6 +169,11 @@ public static class McpServer
                         {
                             ["type"] = "string",
                             ["description"] = "Root project or workspace directory to scan for developer caches"
+                        },
+                        ["olderThanDays"] = new JsonObject
+                        {
+                            ["type"] = "number",
+                            ["description"] = "Optional minimum days since last modified (e.g. 30, 60). Defaults to 0 (all caches)."
                         }
                     },
                     ["required"] = new JsonArray { "path" }
@@ -220,6 +230,155 @@ public static class McpServer
             ["result"] = new JsonObject
             {
                 ["tools"] = tools
+            }
+        };
+    }
+
+    private static JsonObject HandlePromptsList(JsonElement id)
+    {
+        var prompts = new JsonArray
+        {
+            new JsonObject
+            {
+                ["name"] = "audit-storage",
+                ["description"] = "Full disk audit across duplicates, large files, forgotten files, and dormant dev caches with Active vs Abandoned project scoring.",
+                ["arguments"] = new JsonArray
+                {
+                    new JsonObject { ["name"] = "path", ["description"] = "Target directory path (defaults to current workspace)", ["required"] = false },
+                    new JsonObject { ["name"] = "forgottenDays", ["description"] = "Untouched days threshold (default: 30)", ["required"] = false },
+                    new JsonObject { ["name"] = "minLargeFileMB", ["description"] = "Large file threshold in MB (default: 100)", ["required"] = false },
+                    new JsonObject { ["name"] = "minDuplicateKB", ["description"] = "Minimum duplicate size in KB (default: 100)", ["required"] = false }
+                }
+            },
+            new JsonObject
+            {
+                ["name"] = "duplicates",
+                ["description"] = "Find identical duplicate files with Keep Newest recommendation and Active/Abandoned project awareness.",
+                ["arguments"] = new JsonArray
+                {
+                    new JsonObject { ["name"] = "path", ["description"] = "Target directory path", ["required"] = false },
+                    new JsonObject { ["name"] = "minDuplicateKB", ["description"] = "Minimum duplicate size in KB (default: 100)", ["required"] = false }
+                }
+            },
+            new JsonObject
+            {
+                ["name"] = "forgotten-files",
+                ["description"] = "Find files untouched for N days (7, 15, 30, 60, 90+) with project activity status.",
+                ["arguments"] = new JsonArray
+                {
+                    new JsonObject { ["name"] = "path", ["description"] = "Target directory path", ["required"] = false },
+                    new JsonObject { ["name"] = "forgottenDays", ["description"] = "Days untouched threshold (default: 30)", ["required"] = false }
+                }
+            },
+            new JsonObject
+            {
+                ["name"] = "large-files",
+                ["description"] = "Find heavy storage hogs (100 MB+, 500 MB+, 1 GB+) and check if they live in active or abandoned projects.",
+                ["arguments"] = new JsonArray
+                {
+                    new JsonObject { ["name"] = "path", ["description"] = "Target directory path", ["required"] = false },
+                    new JsonObject { ["name"] = "minLargeFileMB", ["description"] = "Minimum size in MB (default: 100)", ["required"] = false }
+                }
+            },
+            new JsonObject
+            {
+                ["name"] = "dev-caches",
+                ["description"] = "Hunt dormant node_modules, Python venv, Rust target, and .NET bin/obj folders while protecting active projects.",
+                ["arguments"] = new JsonArray
+                {
+                    new JsonObject { ["name"] = "path", ["description"] = "Root projects folder path", ["required"] = false },
+                    new JsonObject { ["name"] = "olderThanDays", ["description"] = "Only show caches untouched for at least N days (default: 30)", ["required"] = false }
+                }
+            }
+        };
+
+        return new JsonObject
+        {
+            ["jsonrpc"] = "2.0",
+            ["id"] = JsonNode.Parse(id.GetRawText()),
+            ["result"] = new JsonObject
+            {
+                ["prompts"] = prompts
+            }
+        };
+    }
+
+    private static JsonObject HandlePromptsGet(JsonElement id, JsonElement? @params)
+    {
+        if (@params is null || !@params.Value.TryGetProperty("name", out var nameProp))
+        {
+            return CreateErrorResponse(id, -32602, "Invalid params: 'name' is required");
+        }
+
+        string name = nameProp.GetString() ?? "";
+        JsonElement args = @params.Value.TryGetProperty("arguments", out var argsProp) ? argsProp : default;
+
+        string GetArg(string key, string fallback) =>
+            args.ValueKind == JsonValueKind.Object && args.TryGetProperty(key, out var v) && !string.IsNullOrWhiteSpace(v.GetString())
+                ? v.GetString()!
+                : fallback;
+
+        string path = GetArg("path", ".");
+        string forgottenDays = GetArg("forgottenDays", "30");
+        string minLargeMB = GetArg("minLargeFileMB", "100");
+        string minDupKB = GetArg("minDuplicateKB", "100");
+        string olderThanDays = GetArg("olderThanDays", "30");
+
+        string? instruction = name switch
+        {
+            "audit-storage" =>
+                $"Run a full Vacumify storage audit on '{path}' by calling `vacumify_scan` (with forgottenDays={forgottenDays}, minLargeFileBytes={minLargeMB}*1024*1024, minDuplicateBytes={minDupKB}*1024) and `vacumify_get_dev_caches`. " +
+                "Present a clear breakdown of Reclaimable Duplicates, Large Files, Forgotten Files, and Dormant Dev Caches. " +
+                "Prioritize items in ABANDONED projects and warn/protect items in ACTIVE projects. " +
+                "Ask for user confirmation before calling `vacumify_recycle_items` (which strictly sends items to the Windows Recycle Bin, never permanent delete).",
+
+            "duplicates" =>
+                $"Call `vacumify_scan` on '{path}' with minDuplicateBytes={minDupKB}*1024. " +
+                "List duplicate file groups, identify how much space can be reclaimed by keeping the newest copy, and check whether copies are in ACTIVE or ABANDONED projects. " +
+                "Propose a Recycle Bin cleanup plan using `vacumify_recycle_items` with dryRun=true first, and wait for user approval before moving items to the Windows Recycle Bin.",
+
+            "forgotten-files" =>
+                $"Call `vacumify_scan` on '{path}' with forgottenDays={forgottenDays}. " +
+                $"Highlight files untouched for {forgottenDays}+ days, noting their activityStatus (ACTIVE vs DORMANT vs ABANDONED). " +
+                "Wait for user approval before sending any selected files to the Windows Recycle Bin via `vacumify_recycle_items`.",
+
+            "large-files" =>
+                $"Call `vacumify_scan` on '{path}' with minLargeFileBytes={minLargeMB}*1024*1024. " +
+                $"Rank the heaviest files >= {minLargeMB} MB, showing their size and whether they reside in ACTIVE or ABANDONED projects. " +
+                "Never delete automatically; present options and move approved files to the Windows Recycle Bin via `vacumify_recycle_items`.",
+
+            "dev-caches" =>
+                $"Call `vacumify_get_dev_caches` on '{path}' with olderThanDays={olderThanDays}. " +
+                "Group results by activityStatus: mark ACTIVE projects (last touched <= 14 days) as protected/skip, and highlight DORMANT/ABANDONED project caches (node_modules, venv, target, bin/obj) as safe cleanup targets. " +
+                "Confirm with the user before recycling via `vacumify_recycle_items`.",
+
+            _ => null
+        };
+
+        if (instruction is null)
+        {
+            return CreateErrorResponse(id, -32602, $"Unknown prompt: {name}");
+        }
+
+        return new JsonObject
+        {
+            ["jsonrpc"] = "2.0",
+            ["id"] = JsonNode.Parse(id.GetRawText()),
+            ["result"] = new JsonObject
+            {
+                ["description"] = $"Vacumify workflow for {name}",
+                ["messages"] = new JsonArray
+                {
+                    new JsonObject
+                    {
+                        ["role"] = "user",
+                        ["content"] = new JsonObject
+                        {
+                            ["type"] = "text",
+                            ["text"] = instruction
+                        }
+                    }
+                }
             }
         };
     }
@@ -287,14 +446,16 @@ public static class McpServer
 
     private static string ExecuteScan(JsonElement args)
     {
-        string path = args.TryGetProperty("path", out var p) ? p.GetString() ?? "" : "";
+        string path = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("path", out var p) ? p.GetString() ?? "" : "";
         if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
         {
             return $"Directory does not exist: '{path}'";
         }
 
+        int forgottenDays = args.TryGetProperty("forgottenDays", out var fd) && fd.TryGetInt32(out var fdv) ? Math.Max(1, fdv) : 30;
+        long minLargeBytes = args.TryGetProperty("minLargeFileBytes", out var mlb) && mlb.TryGetInt64(out var mlbv) ? Math.Max(0, mlbv) : 100L * 1024 * 1024;
+        long minDupSize = args.TryGetProperty("minDuplicateBytes", out var ms) && ms.TryGetInt64(out var msv) ? Math.Max(1, msv) : 100L * 1024;
         bool includeHidden = args.TryGetProperty("includeHidden", out var ih) && ih.GetBoolean();
-        long minDupSize = args.TryGetProperty("minDuplicateBytes", out var ms) && ms.TryGetInt64(out var msv) ? msv : 100L * 1024;
 
         var options = new ScanOptions(
             IncludeHiddenCaches: includeHidden,
@@ -304,35 +465,79 @@ public static class McpServer
 
         var result = Task.Run(() => Scanner.ScanAsync([path], options, null, CancellationToken.None)).GetAwaiter().GetResult();
 
+        DateTime forgottenCutoff = DateTime.UtcNow.AddDays(-forgottenDays);
+        var forgottenFiles = result.Files.Where(f => f.LastAccessUtc <= forgottenCutoff).OrderBy(f => f.LastAccessUtc).ToList();
+        var largeFiles = result.Files.Where(f => f.Size >= minLargeBytes).OrderByDescending(f => f.Size).ToList();
         var dupGroups = result.Files.Where(f => f.DuplicateGroupCount > 1).GroupBy(f => f.DuplicateGroupId).ToList();
-        var heavyFiles = result.Files.OrderByDescending(f => f.Size).Take(10).ToList();
 
         var report = new JsonObject
         {
             ["scannedPath"] = path,
+            ["conditions"] = new JsonObject
+            {
+                ["forgottenDays"] = forgottenDays,
+                ["minLargeFileFormatted"] = FileEntry.FormatBytes(minLargeBytes),
+                ["minDuplicateFormatted"] = FileEntry.FormatBytes(minDupSize),
+                ["includeHidden"] = includeHidden
+            },
             ["totalFiles"] = result.Files.Count,
             ["totalScannedBytes"] = result.BytesScanned,
             ["totalScannedFormatted"] = FileEntry.FormatBytes(result.BytesScanned),
             ["duplicateGroupsCount"] = dupGroups.Count,
             ["reclaimableDuplicateBytes"] = result.ReclaimableDuplicateBytes,
             ["reclaimableDuplicateFormatted"] = FileEntry.FormatBytes(result.ReclaimableDuplicateBytes),
+            ["largeFilesCount"] = largeFiles.Count,
+            ["largeFilesTotalFormatted"] = FileEntry.FormatBytes(largeFiles.Sum(f => f.Size)),
+            ["forgottenFilesCount"] = forgottenFiles.Count,
+            ["forgottenFilesTotalFormatted"] = FileEntry.FormatBytes(forgottenFiles.Sum(f => f.Size)),
             ["devCachesCount"] = result.DevCaches.Count,
-            ["devCachesTotalBytes"] = result.DevCaches.Sum(c => c.Size),
             ["devCachesTotalFormatted"] = FileEntry.FormatBytes(result.DevCaches.Sum(c => c.Size)),
-            ["topHeavyFiles"] = new JsonArray(heavyFiles.Select(f => (JsonNode)new JsonObject
+            ["topLargeFiles"] = new JsonArray(largeFiles.Take(10).Select(f =>
             {
-                ["name"] = f.Name,
-                ["size"] = f.SizeText,
-                ["path"] = f.Path
+                var activity = Scanner.GetProjectActivity(f.Path, f.LastWriteUtc);
+                return (JsonNode)new JsonObject
+                {
+                    ["name"] = f.Name,
+                    ["size"] = f.SizeText,
+                    ["path"] = f.Path,
+                    ["activityStatus"] = activity.Status,
+                    ["daysUntouched"] = activity.DaysUntouched
+                };
             }).ToArray()),
-            ["topDuplicateGroups"] = new JsonArray(dupGroups.Take(5).Select(g => (JsonNode)new JsonObject
+            ["topForgottenFiles"] = new JsonArray(forgottenFiles.Take(10).Select(f =>
             {
-                ["groupId"] = g.Key,
-                ["fileName"] = g.First().Name,
-                ["copies"] = g.Count(),
-                ["individualSize"] = g.First().SizeText,
-                ["reclaimableBytes"] = (g.Count() - 1) * g.First().Size,
-                ["paths"] = new JsonArray(g.Select(f => (JsonNode)f.Path).ToArray())
+                var activity = Scanner.GetProjectActivity(f.Path, f.LastWriteUtc);
+                return (JsonNode)new JsonObject
+                {
+                    ["name"] = f.Name,
+                    ["size"] = f.SizeText,
+                    ["lastAccessed"] = f.AccessedText,
+                    ["path"] = f.Path,
+                    ["activityStatus"] = activity.Status,
+                    ["daysUntouched"] = activity.DaysUntouched
+                };
+            }).ToArray()),
+            ["topDuplicateGroups"] = new JsonArray(dupGroups.Take(8).Select(g =>
+            {
+                var copies = g.OrderByDescending(f => f.LastWriteUtc).ToList();
+                return (JsonNode)new JsonObject
+                {
+                    ["groupId"] = g.Key,
+                    ["fileName"] = copies[0].Name,
+                    ["copiesCount"] = copies.Count,
+                    ["individualSize"] = copies[0].SizeText,
+                    ["reclaimableBytes"] = (copies.Count - 1) * copies[0].Size,
+                    ["copies"] = new JsonArray(copies.Select(c =>
+                    {
+                        var activity = Scanner.GetProjectActivity(c.Path, c.LastWriteUtc);
+                        return (JsonNode)new JsonObject
+                        {
+                            ["path"] = c.Path,
+                            ["modified"] = c.ModifiedText,
+                            ["activityStatus"] = activity.Status
+                        };
+                    }).ToArray())
+                };
             }).ToArray())
         };
 
@@ -341,11 +546,13 @@ public static class McpServer
 
     private static string ExecuteGetDevCaches(JsonElement args)
     {
-        string path = args.TryGetProperty("path", out var p) ? p.GetString() ?? "" : "";
+        string path = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("path", out var p) ? p.GetString() ?? "" : "";
         if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
         {
             return $"Directory does not exist: '{path}'";
         }
+
+        int olderThanDays = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("olderThanDays", out var otd) && otd.TryGetInt32(out var otdv) ? Math.Max(0, otdv) : 0;
 
         var options = new ScanOptions(
             IncludeHiddenCaches: true,
@@ -355,22 +562,37 @@ public static class McpServer
 
         var result = Task.Run(() => Scanner.ScanAsync([path], options, null, CancellationToken.None)).GetAwaiter().GetResult();
 
-        var caches = result.DevCaches.Select(c => new JsonObject
+        var filtered = result.DevCaches.AsEnumerable();
+        if (olderThanDays > 0)
         {
-            ["project"] = c.ProjectName,
-            ["cacheType"] = c.CacheType,
-            ["path"] = c.Path,
-            ["sizeBytes"] = c.Size,
-            ["sizeFormatted"] = c.SizeText,
-            ["lastModified"] = c.ModifiedText
+            DateTime cutoff = DateTime.UtcNow.AddDays(-olderThanDays);
+            filtered = filtered.Where(c => c.LastModifiedUtc <= cutoff);
+        }
+
+        var cacheList = filtered.ToList();
+        var cachesJson = cacheList.Select(c =>
+        {
+            var activity = Scanner.GetProjectActivity(c.Path, c.LastModifiedUtc);
+            return new JsonObject
+            {
+                ["project"] = c.ProjectName,
+                ["cacheType"] = c.CacheType,
+                ["path"] = c.Path,
+                ["sizeBytes"] = c.Size,
+                ["sizeFormatted"] = c.SizeText,
+                ["lastModified"] = c.ModifiedText,
+                ["activityStatus"] = activity.Status,
+                ["daysUntouched"] = activity.DaysUntouched
+            };
         }).ToArray();
 
         var response = new JsonObject
         {
-            ["totalCachesFound"] = caches.Length,
-            ["totalReclaimableBytes"] = result.DevCaches.Sum(c => c.Size),
-            ["totalReclaimableFormatted"] = FileEntry.FormatBytes(result.DevCaches.Sum(c => c.Size)),
-            ["caches"] = new JsonArray(caches)
+            ["olderThanDaysFilter"] = olderThanDays,
+            ["totalCachesFound"] = cachesJson.Length,
+            ["totalReclaimableBytes"] = cacheList.Sum(c => c.Size),
+            ["totalReclaimableFormatted"] = FileEntry.FormatBytes(cacheList.Sum(c => c.Size)),
+            ["caches"] = new JsonArray(cachesJson)
         };
 
         return response.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
@@ -378,7 +600,7 @@ public static class McpServer
 
     private static string ExecuteGetSafeJunk(JsonElement args)
     {
-        string path = args.TryGetProperty("path", out var p) ? p.GetString() ?? "" : "";
+        string path = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("path", out var p) ? p.GetString() ?? "" : "";
         if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
         {
             return $"Directory does not exist: '{path}'";
@@ -442,7 +664,7 @@ public static class McpServer
 
     private static string ExecuteRecycleItems(JsonElement args)
     {
-        if (!args.TryGetProperty("paths", out var pathsProp) || pathsProp.ValueKind != JsonValueKind.Array)
+        if (args.ValueKind != JsonValueKind.Object || !args.TryGetProperty("paths", out var pathsProp) || pathsProp.ValueKind != JsonValueKind.Array)
         {
             return "Missing required parameter 'paths' (must be an array of strings)";
         }
