@@ -1,10 +1,18 @@
 {
   "name": "vacumify-mcp",
-  "version": "1.1.0",
-  "description": "Model Context Protocol (MCP) server for Vacumify — Fast, local-first storage cleaner and duplicate finder for AI agents (Claude Code, Cursor, Antigravity, VS Code)",
+  "version": "1.2.0",
+  "description": "Standalone cross-platform Model Context Protocol (MCP) server for Vacumify — Pure Node.js zero-dependency storage cleaner, duplicate finder, and dev-cache auditor for AI agents (Windows, macOS, Linux)",
   "main": "bin/vacumify-mcp.js",
   "bin": {
     "vacumify-mcp": "bin/vacumify-mcp.js"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
   },
   "keywords": [
     "mcp",

@@ -2,7 +2,7 @@
 
 Connect **Vacumify** directly to AI agent environments such as **Claude Code**, **Claude Desktop**, **Cursor**, **Windsurf**, and **Google Antigravity**.
 
-Runs completely standalone over `stdio` without opening the desktop GUI. If `Vacumify.exe` is not found locally, `npx -y vacumify-mcp` automatically downloads the official Windows x64 binary from GitHub Releases into `~/.vacumify/`.
+Runs completely standalone in pure Node.js (zero dependencies, zero `.exe` downloads) over `stdio` on **Windows, macOS, and Linux** — no desktop GUI installation required.
 
 ---
 

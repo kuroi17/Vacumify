@@ -56,9 +56,9 @@ StorageCleaner\StorageCleaner\bin\Release\net10.0-windows\win-x64\publish\Vacumi
 
 ## AI Agent Integration (Model Context Protocol / MCP)
 
-Vacumify includes a standalone **Model Context Protocol (MCP)** server (`vacumify-mcp`) over `stdio`, allowing AI agents (**Claude Code**, **Cursor**, **Claude Desktop**, **Windsurf**, **Antigravity**) to audit disk space and safely recycle clutter without opening the GUI.
+Vacumify includes a pure Node.js, zero-dependency **Model Context Protocol (MCP)** server (`vacumify-mcp`) over `stdio` for **Windows, macOS, and Linux**, allowing AI agents (**Claude Code**, **Cursor**, **Claude Desktop**, **Windsurf**, **Antigravity**) to audit disk space and safely recycle clutter without opening or installing the desktop GUI.
 
-### Quick Install (npm / npx — Auto-downloads standalone binary)
+### Quick Install (npm / npx — Pure Node.js Standalone, No `.exe` Required)
 
 Run directly with zero setup:
 ```bash
