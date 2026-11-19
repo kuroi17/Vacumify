@@ -7,7 +7,7 @@ const readline = require('readline');
 const scanner = require('../lib/scanner');
 
 const SERVER_NAME = 'vacumify';
-const SERVER_VERSION = '1.2.0';
+const SERVER_VERSION = '1.2.1';
 const PROTOCOL_VERSION = '2024-11-05';
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -322,6 +322,47 @@ async function handleVacumifyScan(args) {
       ...enrichActivity(c.path, c.lastModifiedMs)
     }));
 
+  const safeJunkCandidates = scanner.identifySafeJunk(result.files);
+  const abandonedCaches = devCaches.filter((c) => c.activityStatus === 'ABANDONED');
+
+  const zeroRiskItems = [
+    ...safeJunkCandidates.map((f) => ({
+      path: f.path,
+      name: f.name,
+      size: f.size,
+      sizeFormatted: scanner.formatBytes(f.size),
+      reason: f.duplicateGroupId
+        ? 'Redundant duplicate copy (original preserved)'
+        : 'Obsolete installer / crash dump (>30d idle)',
+      category: f.duplicateGroupId ? 'duplicate' : 'obsolete_installer'
+    })),
+    ...abandonedCaches.map((c) => ({
+      path: c.path,
+      name: `${c.projectName} (${c.cacheType})`,
+      size: c.size,
+      sizeFormatted: c.sizeFormatted,
+      reason: `Dead dev cache in abandoned project (${c.daysUntouched}d idle)`,
+      category: 'abandoned_cache'
+    }))
+  ].sort((a, b) => b.size - a.size);
+
+  const zeroRiskBytes = zeroRiskItems.reduce((acc, item) => acc + item.size, 0);
+
+  const zeroRiskSummary = {
+    totalItems: zeroRiskItems.length,
+    reclaimableBytes: zeroRiskBytes,
+    reclaimableFormatted: scanner.formatBytes(zeroRiskBytes),
+    topRecommendations: zeroRiskItems.slice(0, 5)
+  };
+
+  const reviewNeededSummary = {
+    largeFilesCount: topLargeFiles.length,
+    forgottenFilesCount: forgottenAll.length,
+    activeOrDormantCachesCount: devCaches.filter((c) => c.activityStatus !== 'ABANDONED').length,
+    topLargeCandidates: topLargeFiles.slice(0, 3),
+    topForgottenCandidates: topForgottenFiles.slice(0, 3)
+  };
+
   return {
     scannedPath: targetPath,
     totalFiles: result.files.length,
@@ -333,6 +374,8 @@ async function handleVacumifyScan(args) {
       minDuplicateBytes,
       includeHidden
     },
+    zeroRiskSummary,
+    reviewNeededSummary,
     reclaimableDuplicateBytes: result.reclaimableDuplicateBytes,
     reclaimableDuplicateFormatted: scanner.formatBytes(result.reclaimableDuplicateBytes),
     duplicateGroupCount: groupsMap.size,
@@ -340,6 +383,7 @@ async function handleVacumifyScan(args) {
     devCacheCount: result.devCaches.length,
     devCacheTotalBytes: result.devCaches.reduce((acc, c) => acc + c.size, 0),
     devCacheTotalFormatted: scanner.formatBytes(result.devCaches.reduce((acc, c) => acc + c.size, 0)),
+    zeroRiskItems: zeroRiskItems.slice(0, 50),
     topLargeFiles,
     topForgottenFiles,
     topDuplicateGroups,
@@ -437,20 +481,20 @@ function getPromptResponse(name, args = {}) {
   switch (name) {
     case 'audit-storage':
       return {
-        description: 'Comprehensive storage audit using Vacumify MCP tools.',
+        description: 'Executive storage audit with zero-risk recommendations and minimal noise.',
         messages: [
           {
             role: 'user',
             content: {
               type: 'text',
               text:
-                `Run a full storage audit on ${target} using \`vacumify_scan\` and \`vacumify_get_dev_caches\`.\n` +
-                'Summarize reclaimed-space opportunities across four buckets:\n' +
-                '1. Developer caches (node_modules, .NET bin/obj, .venv, target, etc.) grouped by project activity (ACTIVE / DORMANT / ABANDONED).\n' +
-                '2. Redundant duplicate file groups (keep oldest original, list redundant copies).\n' +
-                '3. Forgotten files untouched for 90+ days (`forgottenDays`).\n' +
-                '4. Large files exceeding 100 MB (`minLargeFileBytes`).\n' +
-                'Do NOT recycle anything without explicit user confirmation. When approved, always move items via `vacumify_recycle_items` (Recycle Bin / System Trash, never permanent delete).'
+                `Run an executive storage audit on ${target} using \`vacumify_scan\`.\n\n` +
+                'OUTPUT GUIDELINES (DO NOT OUTPUT MASSIVE 50+ ROW TABLES):\n' +
+                '1. Topline Impact (1-2 sentences): State total files scanned, total directory size, and immediate zero-risk reclaimable space (from `zeroRiskSummary`).\n' +
+                '2. Zero-Risk Safe Sweep (Top 3-5 items): Highlight the highest-impact zero-risk items (redundant duplicate copies with original preserved, obsolete installers/dumps >30d, and abandoned project caches) with size and why they are 100% safe to recycle.\n' +
+                '3. Items Needing Review: Briefly mention the top 2-3 large files or forgotten files that the user might want to consider.\n' +
+                '4. Actionable Next Step: Offer to recycle the Zero-Risk items directly to Recycle Bin/Trash using `vacumify_recycle_items`, and mention that the user can ask for full lists ("show all duplicates", "show forgotten") if desired.\n' +
+                '5. Strict Safety: NEVER permanently delete. Always use `vacumify_recycle_items` after user confirms.'
             }
           }
         ]
@@ -464,9 +508,11 @@ function getPromptResponse(name, args = {}) {
             content: {
               type: 'text',
               text:
-                `Scan ${target} for duplicate files using \`vacumify_scan\` (respecting \`minDuplicateBytes\`, default 100 KB) and \`vacumify_get_safe_junk\`.\n` +
-                'Present each duplicate group clearly with the preserved original copy and redundant copies, sorted by reclaimable size.\n' +
-                'Ask the user before calling `vacumify_recycle_items` so redundant copies go safely to Recycle Bin / System Trash.'
+                `Scan ${target} for duplicate files using \`vacumify_scan\` (respecting \`minDuplicateBytes\`, default 100 KB).\n\n` +
+                'OUTPUT GUIDELINES:\n' +
+                '1. State total duplicate groups found and total reclaimable space.\n' +
+                '2. Show only the top 3-5 duplicate groups by size. For each group, clearly indicate the original file to KEEP and the redundant copies safe to RECYCLE.\n' +
+                '3. Do not list dozens of rows. Offer to move the redundant copies to Recycle Bin via `vacumify_recycle_items`, or let the user ask to see more groups.'
             }
           }
         ]
@@ -481,9 +527,11 @@ function getPromptResponse(name, args = {}) {
             content: {
               type: 'text',
               text:
-                `Scan ${target} using \`vacumify_scan\` with \`forgottenDays: ${days}\`.\n` +
-                `List the top forgotten files untouched for at least ${days} days, including their size, last-accessed date, and project activity status.\n` +
-                'Confirm with the user before recycling any files via `vacumify_recycle_items`.'
+                `Scan ${target} using \`vacumify_scan\` with \`forgottenDays: ${days}\`.\n\n` +
+                'OUTPUT GUIDELINES:\n' +
+                `1. State total files untouched for ${days}+ days and their total size.\n` +
+                '2. Highlight only the top 3-5 largest forgotten files with their idle days and project activity status (ACTIVE / DORMANT / ABANDONED).\n' +
+                '3. Ask the user if they want to recycle any of these via `vacumify_recycle_items` or inspect more.'
             }
           }
         ]
@@ -500,9 +548,11 @@ function getPromptResponse(name, args = {}) {
             content: {
               type: 'text',
               text:
-                `Scan ${target} using \`vacumify_scan\` with \`minLargeFileBytes: ${minBytes}\` (${minMb} MB).\n` +
-                'Rank the largest files with sizes, last modified dates, and activity context.\n' +
-                'Confirm with the user before recycling any files via `vacumify_recycle_items`.'
+                `Scan ${target} using \`vacumify_scan\` with \`minLargeFileBytes: ${minBytes}\` (${minMb} MB).\n\n` +
+                'OUTPUT GUIDELINES:\n' +
+                `1. State total large files >= ${minMb} MB and aggregate size.\n` +
+                '2. Rank only the top 3-5 largest space hogs with file type, size, and last modified date.\n' +
+                '3. Ask the user for confirmation before recycling any files via `vacumify_recycle_items`.'
             }
           }
         ]
@@ -520,9 +570,11 @@ function getPromptResponse(name, args = {}) {
             content: {
               type: 'text',
               text:
-                `Scan ${target} using \`vacumify_get_dev_caches\`${olderClause}.\n` +
-                'Highlight ABANDONED and DORMANT project caches first while warning against deleting ACTIVE workspace dependencies unless the user confirms.\n' +
-                'Always use `vacumify_recycle_items` (Recycle Bin / System Trash) when cleaning approved caches.'
+                `Scan ${target} using \`vacumify_get_dev_caches\`${olderClause}.\n\n` +
+                'OUTPUT GUIDELINES:\n' +
+                '1. Summarize total dev cache size found.\n' +
+                '2. Group into ABANDONED (safe to sweep), DORMANT (review), and ACTIVE (warn user to keep intact).\n' +
+                '3. Recommend recycling the ABANDONED caches first and ask for user confirmation before calling `vacumify_recycle_items`.'
             }
           }
         ]

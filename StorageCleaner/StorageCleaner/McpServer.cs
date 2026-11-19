@@ -327,30 +327,24 @@ public static class McpServer
         string? instruction = name switch
         {
             "audit-storage" =>
-                $"Run a full Vacumify storage audit on '{path}' by calling `vacumify_scan` (with forgottenDays={forgottenDays}, minLargeFileBytes={minLargeMB}*1024*1024, minDuplicateBytes={minDupKB}*1024) and `vacumify_get_dev_caches`. " +
-                "Present a clear breakdown of Reclaimable Duplicates, Large Files, Forgotten Files, and Dormant Dev Caches. " +
-                "Prioritize items in ABANDONED projects and warn/protect items in ACTIVE projects. " +
-                "Ask for user confirmation before calling `vacumify_recycle_items` (which strictly sends items to the Windows Recycle Bin, never permanent delete).",
+                $"Run an executive storage audit on '{path}' by calling `vacumify_scan` (with forgottenDays={forgottenDays}, minLargeFileBytes={minLargeMB}*1024*1024, minDuplicateBytes={minDupKB}*1024) and `vacumify_get_dev_caches`. " +
+                "Do NOT dump massive tables. State total scanned size and immediate zero-risk reclaimable space, present top 3-5 Zero-Risk wins (redundant duplicates, obsolete installers >30d, abandoned caches), briefly mention top 2-3 review candidates, and offer to recycle via `vacumify_recycle_items`.",
 
             "duplicates" =>
                 $"Call `vacumify_scan` on '{path}' with minDuplicateBytes={minDupKB}*1024. " +
-                "List duplicate file groups, identify how much space can be reclaimed by keeping the newest copy, and check whether copies are in ACTIVE or ABANDONED projects. " +
-                "Propose a Recycle Bin cleanup plan using `vacumify_recycle_items` with dryRun=true first, and wait for user approval before moving items to the Windows Recycle Bin.",
+                "Show total reclaimable duplicate space and top 3-5 duplicate groups indicating which copy to KEEP and which to RECYCLE. Offer to recycle via `vacumify_recycle_items`.",
 
             "forgotten-files" =>
                 $"Call `vacumify_scan` on '{path}' with forgottenDays={forgottenDays}. " +
-                $"Highlight files untouched for {forgottenDays}+ days, noting their activityStatus (ACTIVE vs DORMANT vs ABANDONED). " +
-                "Wait for user approval before sending any selected files to the Windows Recycle Bin via `vacumify_recycle_items`.",
+                $"State total forgotten space and list only the top 3-5 files untouched for {forgottenDays}+ days with activityStatus. Ask user before recycling via `vacumify_recycle_items`.",
 
             "large-files" =>
                 $"Call `vacumify_scan` on '{path}' with minLargeFileBytes={minLargeMB}*1024*1024. " +
-                $"Rank the heaviest files >= {minLargeMB} MB, showing their size and whether they reside in ACTIVE or ABANDONED projects. " +
-                "Never delete automatically; present options and move approved files to the Windows Recycle Bin via `vacumify_recycle_items`.",
+                $"State total large files >= {minLargeMB} MB, show top 3-5 largest files, and ask before moving to Recycle Bin via `vacumify_recycle_items`.",
 
             "dev-caches" =>
                 $"Call `vacumify_get_dev_caches` on '{path}' with olderThanDays={olderThanDays}. " +
-                "Group results by activityStatus: mark ACTIVE projects (last touched <= 14 days) as protected/skip, and highlight DORMANT/ABANDONED project caches (node_modules, venv, target, bin/obj) as safe cleanup targets. " +
-                "Confirm with the user before recycling via `vacumify_recycle_items`.",
+                "Group results by activity: highlight ABANDONED caches as safe cleanup targets, warn against ACTIVE project caches, and confirm before calling `vacumify_recycle_items`.",
 
             _ => null
         };
