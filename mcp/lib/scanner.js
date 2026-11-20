@@ -17,7 +17,9 @@ const ALWAYS_EXCLUDED_FOLDERS = new Set([
   'windows',
   'program files',
   'program files (x86)',
-  'programdata'
+  'programdata',
+  'appdata',
+  'application data'
 ]);
 
 const HIDDEN_DEV_FOLDERS = new Set([
@@ -267,7 +269,7 @@ async function scanDirectory(rootPath, options = {}) {
         const fullPath = path.join(dir, entry.name);
 
         if (entry.isDirectory()) {
-          if (isProtectedRoot(fullPath)) continue;
+          if (isProtectedPath(fullPath)) continue;
 
           const cacheType = await isDevCacheFolder(entry.name, dir);
           if (cacheType) {

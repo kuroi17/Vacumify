@@ -1,6 +1,6 @@
 {
   "name": "vacumify-mcp",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "Standalone cross-platform Model Context Protocol (MCP) server for Vacumify — Pure Node.js zero-dependency storage cleaner, duplicate finder, and dev-cache auditor for AI agents (Windows, macOS, Linux)",
   "main": "bin/vacumify-mcp.js",
   "bin": {
@@ -9,6 +9,7 @@
   "files": [
     "bin/",
     "lib/",
+    "skills/",
     "README.md"
   ],
   "engines": {

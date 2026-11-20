@@ -3,13 +3,53 @@
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const readline = require('readline');
 const scanner = require('../lib/scanner');
 
 const SERVER_NAME = 'vacumify';
-const SERVER_VERSION = '1.2.2';
+const SERVER_VERSION = '1.2.3';
 const PROTOCOL_VERSION = '2024-11-05';
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+if (process.argv.includes('install-skills') || process.argv.includes('--install-skills')) {
+  try {
+    const skillsSource = path.resolve(__dirname, '..', 'skills');
+    if (!fs.existsSync(skillsSource)) {
+      console.error(`Skills directory not found at ${skillsSource}`);
+      process.exit(1);
+    }
+    const destBase = path.join(os.homedir(), '.gemini', 'config', 'skills');
+    fs.mkdirSync(destBase, { recursive: true });
+
+    const skillFolders = fs.readdirSync(skillsSource, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
+
+    for (const folder of skillFolders) {
+      const srcFolder = path.join(skillsSource, folder);
+      const destFolder = path.join(destBase, folder);
+      fs.mkdirSync(destFolder, { recursive: true });
+      const srcSkillMd = path.join(srcFolder, 'SKILL.md');
+      if (fs.existsSync(srcSkillMd)) {
+        fs.copyFileSync(srcSkillMd, path.join(destFolder, 'SKILL.md'));
+      }
+    }
+    console.log(`Vacumify skills installed successfully to: ${destBase}`);
+    console.log('Available slash commands:');
+    console.log('  /audit-storage   - Comprehensive disk audit and zero-risk wins');
+    console.log('  /forgotten       - Scan for dormant files untouched >90 days');
+    console.log('  /large           - Scan for massive files >100 MB');
+    console.log('  /duplicates      - Group identical files with keep/safe markers');
+    console.log('  /dev-caches      - Inspect build caches with git activity status');
+    console.log('  /clean-junk      - Safe sweep of verified junk to Recycle Bin');
+    console.log('  /vacumify        - Overview hub and command reference');
+    process.exit(0);
+  } catch (err) {
+    console.error('Failed to install skills:', err.message);
+    process.exit(1);
+  }
+}
 
 const TOOLS = [
   {
