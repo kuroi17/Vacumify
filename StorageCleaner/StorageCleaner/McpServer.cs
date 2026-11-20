@@ -460,9 +460,20 @@ public static class McpServer
         var result = Task.Run(() => Scanner.ScanAsync([path], options, null, CancellationToken.None)).GetAwaiter().GetResult();
 
         DateTime forgottenCutoff = DateTime.UtcNow.AddDays(-forgottenDays);
-        var forgottenFiles = result.Files.Where(f => f.LastAccessUtc <= forgottenCutoff).OrderBy(f => f.LastAccessUtc).ToList();
+        var forgottenFiles = result.Files.Where(f => f.Size > 0 && f.LastTouchUtc <= forgottenCutoff).OrderByDescending(f => f.Size).ToList();
         var largeFiles = result.Files.Where(f => f.Size >= minLargeBytes).OrderByDescending(f => f.Size).ToList();
         var dupGroups = result.Files.Where(f => f.DuplicateGroupCount > 1).GroupBy(f => f.DuplicateGroupId).ToList();
+
+        var safeJunk = Scanner.IdentifySafeJunk(result.Files);
+        var abandonedCaches = result.DevCaches.Where(c => c.ActivityStatus == "ABANDONED").ToList();
+        long zeroRiskBytes = safeJunk.Sum(f => f.Size) + abandonedCaches.Sum(c => c.Size);
+
+        var zeroRiskTop = safeJunk
+            .Select(f => (Name: f.Name, Path: f.Path, Size: f.Size, Reason: f.SafetyReason, Category: f.DuplicateGroupCount > 1 ? "duplicate" : "obsolete_installer"))
+            .Concat(abandonedCaches.Select(c => (Name: $"{c.ProjectName} ({c.CacheType})", Path: c.Path, Size: c.Size, Reason: $"Dead dev cache in abandoned project ({c.DaysUntouched}d idle)", Category: "abandoned_cache")))
+            .OrderByDescending(x => x.Size)
+            .Take(5)
+            .ToList();
 
         var report = new JsonObject
         {
@@ -477,6 +488,26 @@ public static class McpServer
             ["totalFiles"] = result.Files.Count,
             ["totalScannedBytes"] = result.BytesScanned,
             ["totalScannedFormatted"] = FileEntry.FormatBytes(result.BytesScanned),
+            ["zeroRiskSummary"] = new JsonObject
+            {
+                ["totalItems"] = safeJunk.Count + abandonedCaches.Count,
+                ["reclaimableBytes"] = zeroRiskBytes,
+                ["reclaimableFormatted"] = FileEntry.FormatBytes(zeroRiskBytes),
+                ["topRecommendations"] = new JsonArray(zeroRiskTop.Select(x => (JsonNode)new JsonObject
+                {
+                    ["name"] = x.Name,
+                    ["path"] = x.Path,
+                    ["sizeFormatted"] = FileEntry.FormatBytes(x.Size),
+                    ["reason"] = x.Reason,
+                    ["category"] = x.Category
+                }).ToArray())
+            },
+            ["reviewNeededSummary"] = new JsonObject
+            {
+                ["largeFilesCount"] = largeFiles.Count,
+                ["forgottenFilesCount"] = forgottenFiles.Count,
+                ["activeOrDormantCachesCount"] = result.DevCaches.Count - abandonedCaches.Count
+            },
             ["duplicateGroupsCount"] = dupGroups.Count,
             ["reclaimableDuplicateBytes"] = result.ReclaimableDuplicateBytes,
             ["reclaimableDuplicateFormatted"] = FileEntry.FormatBytes(result.ReclaimableDuplicateBytes),

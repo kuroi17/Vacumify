@@ -16,6 +16,35 @@ public sealed class FileEntry : INotifyPropertyChanged
     internal string? QuickSig { get; set; }
     public int DuplicateGroupId { get; set; }
     public int DuplicateGroupCount { get; set; }
+    public string SafetyVerdict { get; set; } = "REVIEW";
+    public string SafetyReason { get; set; } = "Review before moving to Recycle Bin.";
+    public string ActivityStatus { get; set; } = "";
+
+    public DateTime LastTouchUtc => LastAccessUtc > LastWriteUtc ? LastAccessUtc : LastWriteUtc;
+
+    public string SafetyBadgeBg => SafetyVerdict switch
+    {
+        "SAFE" => "#ECFDF5",
+        "KEEP" => "#EFF6FF",
+        "CAUTION" => "#FEF2F2",
+        _ => "#FFFBEB"
+    };
+
+    public string SafetyBadgeBorder => SafetyVerdict switch
+    {
+        "SAFE" => "#A7F3D0",
+        "KEEP" => "#BFDBFE",
+        "CAUTION" => "#FECACA",
+        _ => "#FDE68A"
+    };
+
+    public string SafetyBadgeFg => SafetyVerdict switch
+    {
+        "SAFE" => "#047857",
+        "KEEP" => "#1D4ED8",
+        "CAUTION" => "#B91C1C",
+        _ => "#B45309"
+    };
 
     private bool _selected;
     public bool Selected
@@ -171,6 +200,8 @@ public sealed class DevCacheEntry : INotifyPropertyChanged
     public required string CacheType { get; init; }
     public required long Size { get; set; }
     public required DateTime LastModifiedUtc { get; init; }
+    public string ActivityStatus { get; init; } = "DORMANT";
+    public int DaysUntouched { get; init; }
 
     private bool _selected;
     public bool Selected
@@ -190,6 +221,30 @@ public sealed class DevCacheEntry : INotifyPropertyChanged
 
     public string SizeText => FileEntry.FormatBytes(Size);
     public string ModifiedText => LastModifiedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+    public string ActivityLabel => ActivityStatus == "ABANDONED"
+        ? $"SAFE ({DaysUntouched}d)"
+        : (ActivityStatus == "ACTIVE" ? $"ACTIVE ({DaysUntouched}d)" : $"DORMANT ({DaysUntouched}d)");
+
+    public string ActivityBadgeBg => ActivityStatus switch
+    {
+        "ABANDONED" => "#ECFDF5",
+        "ACTIVE" => "#FEF2F2",
+        _ => "#FFFBEB"
+    };
+
+    public string ActivityBadgeBorder => ActivityStatus switch
+    {
+        "ABANDONED" => "#A7F3D0",
+        "ACTIVE" => "#FECACA",
+        _ => "#FDE68A"
+    };
+
+    public string ActivityBadgeFg => ActivityStatus switch
+    {
+        "ABANDONED" => "#047857",
+        "ACTIVE" => "#B91C1C",
+        _ => "#B45309"
+    };
 
     public string TypeBadgeBg => CacheType switch
     {
@@ -197,6 +252,7 @@ public sealed class DevCacheEntry : INotifyPropertyChanged
         "Python venv" => "#DBEAFE",
         ".NET bin/obj" => "#F3E8FF",
         "Rust target" => "#FFEDD5",
+        ".next" => "#E0F2FE",
         _ => "#F1F5F9"
     };
 
@@ -206,6 +262,7 @@ public sealed class DevCacheEntry : INotifyPropertyChanged
         "Python venv" => "#93C5FD",
         ".NET bin/obj" => "#D8B4FE",
         "Rust target" => "#FDBA74",
+        ".next" => "#7DD3FC",
         _ => "#CBD5E1"
     };
 
@@ -215,6 +272,7 @@ public sealed class DevCacheEntry : INotifyPropertyChanged
         "Python venv" => "#1D4ED8",
         ".NET bin/obj" => "#7E22CE",
         "Rust target" => "#C2410C",
+        ".next" => "#0369A1",
         _ => "#475569"
     };
 }
@@ -346,6 +404,7 @@ public static class Scanner
                                         long cacheBytes = FastGetDirectorySize(childPath);
                                         string projName = Path.GetFileName(parentDir);
                                         if (string.IsNullOrWhiteSpace(projName)) projName = fsi.Name;
+                                        var activity = GetProjectActivity(childPath, fsi.LastWriteTimeUtc);
 
                                         devCachesBag.Add(new DevCacheEntry
                                         {
@@ -353,7 +412,9 @@ public static class Scanner
                                             ProjectName = projName,
                                             CacheType = cacheType,
                                             Size = cacheBytes,
-                                            LastModifiedUtc = fsi.LastWriteTimeUtc
+                                            LastModifiedUtc = fsi.LastWriteTimeUtc,
+                                            ActivityStatus = activity.Status,
+                                            DaysUntouched = activity.DaysUntouched
                                         });
                                         continue;
                                     }
@@ -368,6 +429,7 @@ public static class Scanner
                                 }
                                 else if (fsi is FileInfo fileInfo)
                                 {
+                                    if (IsSystemNoiseFile(fileInfo.Name)) continue;
                                     long size = fileInfo.Length;
                                     localFiles.Add(new FileEntry
                                     {
@@ -555,48 +617,135 @@ public static class Scanner
             }
         }
 
-        // 3. Duplicate Grouping & Reclaimable Space Calculation
+        // 3. Duplicate Grouping, Safety Scoring & Reclaimable Space Calculation
         long reclaimableBytes = AssignDuplicateGroups(files);
+        EvaluateFileSafety(files);
+
+        var sortedCaches = devCachesBag
+            .OrderBy(c => c.ActivityStatus == "ABANDONED" ? 0 : (c.ActivityStatus == "DORMANT" ? 1 : 2))
+            .ThenByDescending(c => c.Size)
+            .ToList();
 
         progress?.Report(new ScanProgress(totalFiles, totalBytes, "Ready", "Complete"));
-        return new ScanResult(files, devCachesBag.OrderByDescending(c => c.Size).ToList(), [.. errors], totalBytes, reclaimableBytes);
+        return new ScanResult(files, sortedCaches, [.. errors], totalBytes, reclaimableBytes);
     }
 
-    public static List<FileEntry> IdentifySafeJunk(IReadOnlyList<FileEntry> files)
+    public static bool IsSystemNoiseFile(string fileName)
     {
-        var safeList = new List<FileEntry>();
+        if (string.IsNullOrWhiteSpace(fileName)) return true;
+        return fileName.StartsWith("ntuser.dat", StringComparison.OrdinalIgnoreCase)
+            || fileName.StartsWith("usrclass.dat", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(fileName, "desktop.ini", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(fileName, "thumbs.db", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(fileName, ".DS_Store", StringComparison.OrdinalIgnoreCase);
+    }
 
-        // 1. Duplicate Copies (Keep newest copy, redundant older copies are 100% safe to remove)
-        foreach (var grp in files.Where(f => f.DuplicateGroupCount > 1).GroupBy(f => f.DuplicateGroupId))
+    public static void EvaluateFileSafety(IReadOnlyList<FileEntry> files)
+    {
+        var dirCache = new Dictionary<string, (string Status, int Days, bool InProject)>(StringComparer.OrdinalIgnoreCase);
+
+        (string Status, int Days, bool InProject) GetDirContext(string filePath, DateTime fallbackUtc)
         {
-            var copies = grp.OrderByDescending(f => f.LastWriteUtc).ToList();
-            for (int i = 1; i < copies.Count; i++)
+            string dir = Path.GetDirectoryName(filePath) ?? "";
+            if (!string.IsNullOrEmpty(dir) && dirCache.TryGetValue(dir, out var cached))
             {
-                safeList.Add(copies[i]);
+                return cached;
             }
+            var info = GetProjectActivityInternal(filePath, fallbackUtc);
+            var val = (info.Status, info.DaysUntouched, info.InProject);
+            if (!string.IsNullOrEmpty(dir)) dirCache[dir] = val;
+            return val;
         }
 
-        // 2. Old Installers & Crash Dumps (> 30 days untouched)
-        var cutoff = DateTime.UtcNow.AddDays(-30);
+        // Identify newest kept copy per duplicate group
+        var keptDuplicatePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var grp in files.Where(f => f.DuplicateGroupCount > 1).GroupBy(f => f.DuplicateGroupId))
+        {
+            var newest = grp.OrderByDescending(f => f.LastWriteUtc).FirstOrDefault();
+            if (newest is not null) keptDuplicatePaths.Add(newest.Path);
+        }
+
+        var nowUtc = DateTime.UtcNow;
+        var installerCutoff = nowUtc.AddDays(-30);
+
         foreach (var f in files)
         {
-            if (f.DuplicateGroupCount > 1) continue;
+            var ctx = GetDirContext(f.Path, f.LastWriteUtc);
+            bool inActiveProject = ctx.InProject && ctx.Status == "ACTIVE";
+            f.ActivityStatus = ctx.InProject ? ctx.Status : "";
+
+            int idleDays = Math.Max(0, (int)(nowUtc - f.LastTouchUtc).TotalDays);
+
+            if (f.DuplicateGroupCount > 1)
+            {
+                if (keptDuplicatePaths.Contains(f.Path))
+                {
+                    f.SafetyVerdict = "KEEP";
+                    f.SafetyReason = "Newest copy in duplicate group — recommended to keep.";
+                }
+                else if (inActiveProject)
+                {
+                    f.SafetyVerdict = "CAUTION";
+                    f.SafetyReason = $"Duplicate inside an ACTIVE project (edited {ctx.Days}d ago). Review before recycling.";
+                }
+                else
+                {
+                    f.SafetyVerdict = "SAFE";
+                    f.SafetyReason = "Redundant duplicate copy — newest original is preserved.";
+                }
+                continue;
+            }
+
+            if (inActiveProject)
+            {
+                f.SafetyVerdict = "CAUTION";
+                f.SafetyReason = $"Inside an ACTIVE project (edited {ctx.Days}d ago). Keep unless unused.";
+                continue;
+            }
 
             string ext = f.ExtensionText;
             bool isInstaller = ext == "MSI" ||
                 (ext == "EXE" && (f.Name.Contains("setup", StringComparison.OrdinalIgnoreCase) ||
                                   f.Name.Contains("installer", StringComparison.OrdinalIgnoreCase) ||
                                   f.Name.Contains("install", StringComparison.OrdinalIgnoreCase)));
-
             bool isCrashDump = ext == "DMP" || (ext == "LOG" && f.Size > 20 * 1024 * 1024);
 
-            if ((isInstaller || isCrashDump) && f.LastAccessUtc <= cutoff)
+            if ((isInstaller || isCrashDump) && f.LastTouchUtc <= installerCutoff)
             {
-                safeList.Add(f);
+                f.SafetyVerdict = "SAFE";
+                f.SafetyReason = isInstaller
+                    ? $"Obsolete installer untouched for {idleDays:N0} days — safe to recycle."
+                    : $"Old crash dump or large log untouched for {idleDays:N0} days.";
+                continue;
+            }
+
+            f.SafetyVerdict = "REVIEW";
+            if (ctx.InProject && ctx.Status == "ABANDONED")
+            {
+                f.SafetyReason = $"Inside an ABANDONED project ({ctx.Days:N0}d idle). Review before recycling.";
+            }
+            else if (idleDays >= 90)
+            {
+                f.SafetyReason = $"Untouched for {idleDays:N0} days. Verify you no longer need it.";
+            }
+            else if (f.Size >= 100L * 1024 * 1024)
+            {
+                f.SafetyReason = $"Large file ({f.SizeText}). Confirm before moving to Recycle Bin.";
+            }
+            else
+            {
+                f.SafetyReason = "Personal or general file. Review before moving to Recycle Bin.";
             }
         }
+    }
 
-        return safeList;
+    public static List<FileEntry> IdentifySafeJunk(IReadOnlyList<FileEntry> files)
+    {
+        if (files.Count > 0 && files.All(f => f.SafetyVerdict == "REVIEW" && f.SafetyReason == "Review before moving to Recycle Bin."))
+        {
+            EvaluateFileSafety(files);
+        }
+        return files.Where(f => f.SafetyVerdict == "SAFE").ToList();
     }
 
     public static bool IsDevCacheFolder(string folderName, string parentDir, out string cacheType)
@@ -604,6 +753,12 @@ public static class Scanner
         if (string.Equals(folderName, "node_modules", StringComparison.OrdinalIgnoreCase))
         {
             cacheType = "node_modules";
+            return true;
+        }
+        if (string.Equals(folderName, ".next", StringComparison.OrdinalIgnoreCase) &&
+            ParentHasAnyFile(parentDir, "package.json", "next.config.*"))
+        {
+            cacheType = ".next";
             return true;
         }
         if (string.Equals(folderName, "venv", StringComparison.OrdinalIgnoreCase) ||
@@ -730,12 +885,19 @@ public static class Scanner
 
     public static (string Status, int DaysUntouched, string ProjectRoot) GetProjectActivity(string targetPath, DateTime fallbackLastWriteUtc)
     {
+        var info = GetProjectActivityInternal(targetPath, fallbackLastWriteUtc);
+        return (info.Status, info.DaysUntouched, info.ProjectRoot);
+    }
+
+    private static (string Status, int DaysUntouched, string ProjectRoot, bool InProject) GetProjectActivityInternal(string targetPath, DateTime fallbackLastWriteUtc)
+    {
         string? dir = Directory.Exists(targetPath)
             ? Path.GetDirectoryName(targetPath.TrimEnd(Path.DirectorySeparatorChar)) ?? targetPath
             : Path.GetDirectoryName(targetPath);
 
         string projectRoot = dir ?? "";
         DateTime lastTouchUtc = fallbackLastWriteUtc;
+        bool inProject = false;
 
         try
         {
@@ -747,6 +909,7 @@ public static class Scanner
                 string gitDir = Path.Combine(current, ".git");
                 if (Directory.Exists(gitDir))
                 {
+                    inProject = true;
                     projectRoot = current;
                     string gitHeadLog = Path.Combine(gitDir, "logs", "HEAD");
                     string gitIndex = Path.Combine(gitDir, "index");
@@ -761,9 +924,11 @@ public static class Scanner
 
                 bool hasProjectMarker = File.Exists(Path.Combine(current, "package.json"))
                     || File.Exists(Path.Combine(current, "Cargo.toml"))
-                    || File.Exists(Path.Combine(current, "pyproject.toml"));
+                    || File.Exists(Path.Combine(current, "pyproject.toml"))
+                    || Directory.EnumerateFiles(current, "*.csproj", SearchOption.TopDirectoryOnly).Any();
                 if (hasProjectMarker)
                 {
+                    inProject = true;
                     projectRoot = current;
                     lastTouchUtc = Directory.GetLastWriteTimeUtc(current);
                     break;
@@ -782,6 +947,6 @@ public static class Scanner
             _ => "ABANDONED"
         };
 
-        return (status, daysUntouched, projectRoot);
+        return (status, daysUntouched, projectRoot, inProject);
     }
 }

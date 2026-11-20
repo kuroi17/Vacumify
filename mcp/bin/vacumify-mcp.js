@@ -7,7 +7,7 @@ const readline = require('readline');
 const scanner = require('../lib/scanner');
 
 const SERVER_NAME = 'vacumify';
-const SERVER_VERSION = '1.2.1';
+const SERVER_VERSION = '1.2.2';
 const PROTOCOL_VERSION = '2024-11-05';
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -46,7 +46,7 @@ const TOOLS = [
   {
     name: 'vacumify_get_dev_caches',
     description:
-      'Scan a workspace or Projects directory specifically for reclaimable developer caches (node_modules, .NET bin/obj, .venv, Rust/Maven target, __pycache__, Gradle, .next, dist, build) with Active/Dormant/Abandoned git activity status.',
+      'Scan a workspace or Projects directory specifically for reclaimable developer caches (node_modules, .NET bin/obj, Python venv/.venv/__pycache__, Rust/Maven target, .gradle, .next) with Active/Dormant/Abandoned git activity status.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -258,7 +258,7 @@ async function handleVacumifyScan(args) {
     }));
 
   const forgottenAll = result.files.filter(
-    (f) => Math.max(f.lastAccessMs || 0, f.lastWriteMs || 0) < forgottenCutoffMs
+    (f) => f.size > 0 && Math.max(f.lastAccessMs || 0, f.lastWriteMs || 0) < forgottenCutoffMs
   );
   const topForgottenFiles = forgottenAll
     .sort((a, b) => b.size - a.size)

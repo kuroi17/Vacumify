@@ -124,14 +124,15 @@ public partial class MainWindow : Window
         ApplyFilters(files);
         FilesCount.Text = files.Count.ToString("N0");
         TotalScannedSize.Text = FileEntry.FormatBytes(_lastResult?.BytesScanned ?? 0);
-        ReclaimableSpaceText.Text = FileEntry.FormatBytes(_lastResult?.ReclaimableDuplicateBytes ?? 0);
 
         // 1-Click Smart Clean Safe Junk breakdown
         var safeJunk = Scanner.IdentifySafeJunk(files);
         long safeBytes = safeJunk.Sum(f => f.Size);
+        ReclaimableSpaceText.Text = FileEntry.FormatBytes(safeBytes);
+
         if (safeBytes > 0)
         {
-            SmartCleanBtn.Content = $"⚡ 1-Click Clean Safe Junk ({FileEntry.FormatBytes(safeBytes)})";
+            SmartCleanBtn.Content = $"1-Click Clean Safe Junk ({FileEntry.FormatBytes(safeBytes)})";
             SmartCleanBtn.IsEnabled = true;
         }
         else
@@ -157,6 +158,7 @@ public partial class MainWindow : Window
     {
         int days = ReadSelectedTag(AgeFilter, 30);
         long sizeThreshold = ReadSelectedTag(SizeFilter, 100L * 1024 * 1024);
+        bool forgottenSafeOnly = ForgottenSafeOnlyCheck?.IsChecked == true;
         var extensions = ExtensionFilter.Text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(x => x.StartsWith('.') ? x : "." + x)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -165,8 +167,8 @@ public partial class MainWindow : Window
 
         DateTime cutoff = DateTime.UtcNow.AddDays(-days);
 
-        _forgotten = files.Where(f => TypeMatches(f) && f.LastAccessUtc <= cutoff)
-                          .OrderBy(f => f.LastAccessUtc)
+        _forgotten = files.Where(f => f.Size > 0 && TypeMatches(f) && f.LastTouchUtc <= cutoff && (!forgottenSafeOnly || f.SafetyVerdict == "SAFE"))
+                          .OrderByDescending(f => f.Size)
                           .ToList();
 
         _duplicates = files.Where(f => TypeMatches(f) && f.DuplicateGroupCount > 1)
@@ -189,6 +191,8 @@ public partial class MainWindow : Window
 
         ForgottenCount.Text = _forgotten.Count.ToString("N0");
         LargeCount.Text = _large.Count.ToString("N0");
+        if (ForgottenFilterHint is not null) ForgottenFilterHint.Text = $"{days}d+ untouched >";
+        if (LargeFilterHint is not null) LargeFilterHint.Text = $"{FileEntry.FormatBytes(sizeThreshold)}+ >";
 
         ForgottenTab.Header = $"Forgotten ({_forgotten.Count:N0})";
         DuplicatesTab.Header = $"Duplicates ({_duplicates.Count:N0})";
@@ -219,7 +223,7 @@ public partial class MainWindow : Window
         {
             if (f.DuplicateGroupCount > 1) continue;
             if (f.Size >= sizeThreshold) largeOtherBytes += f.Size;
-            else if (f.LastAccessUtc <= cutoff) forgottenOtherBytes += f.Size;
+            else if (f.Size > 0 && f.LastTouchUtc <= cutoff) forgottenOtherBytes += f.Size;
         }
 
         long dupBytes = Math.Min(reclaimableDupBytes, totalBytes);
@@ -342,6 +346,11 @@ public partial class MainWindow : Window
         if (IsLoaded && _lastResult is not null) ApplyFilters(_lastResult.Files);
     }
 
+    private void SafeOnly_Changed(object sender, RoutedEventArgs e)
+    {
+        if (IsLoaded && _lastResult is not null) ApplyFilters(_lastResult.Files);
+    }
+
     private void ExtensionFilter_TextChanged(object sender, TextChangedEventArgs e)
     {
         if (!IsLoaded || _lastResult is null) return;
@@ -359,6 +368,7 @@ public partial class MainWindow : Window
         MinDupSizeCombo.IsEnabled = !scanning;
         FastSampleCheck.IsEnabled = !scanning;
         SmartCleanBtn.IsEnabled = !scanning && (_lastResult is not null && Scanner.IdentifySafeJunk(_lastResult.Files).Count > 0);
+        DevSelectAbandonedBtn.IsEnabled = !scanning;
         DevToggleSelectBtn.IsEnabled = !scanning;
         CleanDevCachesBtn.IsEnabled = !scanning && _devCaches.Any(c => c.Selected);
 
@@ -387,14 +397,12 @@ public partial class MainWindow : Window
     {
         try
         {
-            string exePath = Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName ?? "Vacumify.exe";
-            string escapedPath = exePath.Replace(@"\", @"\\");
-            string json = "{\n  \"mcpServers\": {\n    \"vacumify\": {\n      \"command\": \"" + escapedPath + "\",\n      \"args\": [\"--mcp\"]\n    }\n  }\n}";
+            string json = "{\n  \"mcpServers\": {\n    \"vacumify\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"vacumify-mcp\"]\n    }\n  }\n}";
 
             Clipboard.SetText(json);
-            CopyMcpConfigBtn.Content = "✓ Copied MCP Config!";
+            CopyMcpConfigBtn.Content = "Copied MCP Config";
             await Task.Delay(2000);
-            CopyMcpConfigBtn.Content = "⚡ Connect AI / MCP";
+            CopyMcpConfigBtn.Content = "Connect AI / MCP";
         }
         catch (Exception ex)
         {
@@ -501,6 +509,20 @@ public partial class MainWindow : Window
         if (ColorConverter.ConvertFromString(item.TypeBadgeFg) is Color fgCol)
             InspectorExtText.Foreground = new SolidColorBrush(fgCol);
 
+        // Safety recommendation card
+        InspectorSafetyVerdict.Text = item.SafetyVerdict;
+        InspectorSafetyReason.Text = item.SafetyReason;
+        if (ColorConverter.ConvertFromString(item.SafetyBadgeBg) is Color sBg)
+            InspectorSafetyCard.Background = new SolidColorBrush(sBg);
+        if (ColorConverter.ConvertFromString(item.SafetyBadgeBorder) is Color sBorder)
+        {
+            var sb = new SolidColorBrush(sBorder);
+            InspectorSafetyCard.BorderBrush = sb;
+            InspectorSafetyBadge.BorderBrush = sb;
+        }
+        if (ColorConverter.ConvertFromString(item.SafetyBadgeFg) is Color sFg)
+            InspectorSafetyVerdict.Foreground = new SolidColorBrush(sFg);
+
         if (item.DuplicateGroupCount > 1 && _lastResult is not null)
         {
             var siblings = _lastResult.Files
@@ -533,10 +555,10 @@ public partial class MainWindow : Window
         CloseInspector();
     }
 
-    private void InspectorDeleteSingle_Click(object sender, RoutedEventArgs e)
+    private async void InspectorDeleteSingle_Click(object sender, RoutedEventArgs e)
     {
         if (_inspectedFile is null) return;
-        MoveFilesToRecycleBin([_inspectedFile]);
+        await MoveFilesToRecycleBinAsync([_inspectedFile]);
     }
 
     private void UpdateSelectionSummary()
@@ -605,20 +627,38 @@ public partial class MainWindow : Window
         UpdateSelectionSummary();
     }
 
+    private void SelectSafeDuplicates_Click(object sender, RoutedEventArgs e)
+    {
+        foreach (var f in _duplicates)
+        {
+            f.Selected = f.SafetyVerdict == "SAFE";
+        }
+        UpdateSelectionSummary();
+    }
+
+    private void SelectSafeForgotten_Click(object sender, RoutedEventArgs e)
+    {
+        foreach (var f in _forgotten)
+        {
+            f.Selected = f.SafetyVerdict == "SAFE";
+        }
+        UpdateSelectionSummary();
+    }
+
     private void KeepNewest_Click(object sender, RoutedEventArgs e) => SelectDuplicatesByAge(keepNewest: true);
     private void KeepOldest_Click(object sender, RoutedEventArgs e) => SelectDuplicatesByAge(keepNewest: false);
     private void DuplicatesToggleSelect_Click(object sender, RoutedEventArgs e) => ToggleSelectAll(_duplicates, DuplicatesToggleSelectBtn);
     private void ForgottenToggleSelect_Click(object sender, RoutedEventArgs e) => ToggleSelectAll(_forgotten, ForgottenToggleSelectBtn);
     private void LargeToggleSelect_Click(object sender, RoutedEventArgs e) => ToggleSelectAll(_large, LargeToggleSelectBtn);
 
-    private void SmartClean_Click(object sender, RoutedEventArgs e)
+    private async void SmartClean_Click(object sender, RoutedEventArgs e)
     {
         if (_lastResult is null || _lastResult.Files.Count == 0) return;
 
         var safeJunk = Scanner.IdentifySafeJunk(_lastResult.Files);
         if (safeJunk.Count == 0)
         {
-            MessageBox.Show("No zero-risk safe junk found. Your system is already clean!", "1-Click Smart Clean", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show("No zero-risk safe junk found. Your system is already clean.", "1-Click Smart Clean", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
 
@@ -637,15 +677,15 @@ public partial class MainWindow : Window
         long totalBytes = safeJunk.Sum(f => f.Size);
 
         var msg = $"Vacumify identified {safeJunk.Count:N0} zero-risk safe junk file(s) ({FileEntry.FormatBytes(totalBytes)}):\n\n" +
-                  $"• Redundant duplicate copies: {dupCount:N0} ({FileEntry.FormatBytes(dupBytes)})\n   (1st/newest copy of each file is kept safe)\n" +
-                  $"• Obsolete installers in Downloads (>30d untouched): {installerCount:N0} ({FileEntry.FormatBytes(installerBytes)})\n" +
-                  $"• Crash dumps & dead logs: {dumpCount:N0} ({FileEntry.FormatBytes(dumpBytes)})\n\n" +
+                  $"- Redundant duplicate copies (outside active projects): {dupCount:N0} ({FileEntry.FormatBytes(dupBytes)})\n  Newest copy of each group is kept safe.\n" +
+                  $"- Obsolete installers (>30d untouched): {installerCount:N0} ({FileEntry.FormatBytes(installerBytes)})\n" +
+                  $"- Crash dumps & large old logs: {dumpCount:N0} ({FileEntry.FormatBytes(dumpBytes)})\n\n" +
                   $"Move all safe junk to the Windows Recycle Bin?";
 
-        var res = MessageBox.Show(msg, "⚡ 1-Click Smart Clean", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes);
+        var res = MessageBox.Show(msg, "1-Click Smart Clean", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes);
         if (res == MessageBoxResult.Yes)
         {
-            MoveFilesToRecycleBin(safeJunk);
+            await MoveFilesToRecycleBinAsync(safeJunk);
         }
     }
 
@@ -655,6 +695,16 @@ public partial class MainWindow : Window
         {
             UpdateDevCachesButtonState();
         }
+    }
+
+    private void DevSelectAbandoned_Click(object sender, RoutedEventArgs e)
+    {
+        if (_devCaches.Count == 0) return;
+        foreach (var c in _devCaches)
+        {
+            c.Selected = c.ActivityStatus == "ABANDONED";
+        }
+        UpdateDevCachesButtonState();
     }
 
     private void DevToggleSelect_Click(object sender, RoutedEventArgs e)
@@ -674,11 +724,13 @@ public partial class MainWindow : Window
             CleanDevCachesBtn.IsEnabled = false;
             CleanDevCachesBtn.Content = "Clean Selected Caches";
             DevToggleSelectBtn.Content = "Select all";
+            DevSelectAbandonedBtn.IsEnabled = false;
             return;
         }
 
         int selCount = _devCaches.Count(c => c.Selected);
         long selSize = _devCaches.Where(c => c.Selected).Sum(c => c.Size);
+        DevSelectAbandonedBtn.IsEnabled = _devCaches.Any(c => c.ActivityStatus == "ABANDONED");
         CleanDevCachesBtn.IsEnabled = selCount > 0;
         CleanDevCachesBtn.Content = selCount > 0
             ? $"Clean Selected ({selCount:N0} · {FileEntry.FormatBytes(selSize)})"
@@ -686,7 +738,7 @@ public partial class MainWindow : Window
         DevToggleSelectBtn.Content = _devCaches.All(c => c.Selected) ? "Deselect all" : "Select all";
     }
 
-    private void CleanDevCaches_Click(object sender, RoutedEventArgs e)
+    private async void CleanDevCaches_Click(object sender, RoutedEventArgs e)
     {
         DevCachesGrid.CommitEdit(DataGridEditingUnit.Cell, true);
         DevCachesGrid.CommitEdit(DataGridEditingUnit.Row, true);
@@ -694,12 +746,16 @@ public partial class MainWindow : Window
         var targets = _devCaches.Where(c => c.Selected).ToList();
         if (targets.Count == 0) return;
 
+        int activeCount = targets.Count(c => c.ActivityStatus == "ACTIVE");
         long totalBytes = targets.Sum(c => c.Size);
-        string preview = string.Join(Environment.NewLine, targets.Take(6).Select(c => $"{c.ProjectName} ({c.CacheType}) -> {c.Path}"));
+        string preview = string.Join(Environment.NewLine, targets.Take(6).Select(c => $"[{c.ActivityStatus}] {c.ProjectName} ({c.CacheType}) -> {c.Path}"));
         if (targets.Count > 6) preview += Environment.NewLine + $"…and {targets.Count - 6:N0} more.";
+        string activeWarn = activeCount > 0
+            ? $"\n\nWarning: {activeCount:N0} selected folder(s) belong to ACTIVE projects edited recently."
+            : "";
 
         var answer = MessageBox.Show(
-            $"Move {targets.Count:N0} developer cache folder(s) ({FileEntry.FormatBytes(totalBytes)}) to the Windows Recycle Bin?\n\n{preview}\n\nNote: You can re-install dependencies or rebuild at any time.",
+            $"Move {targets.Count:N0} developer cache folder(s) ({FileEntry.FormatBytes(totalBytes)}) to the Windows Recycle Bin?\n\n{preview}{activeWarn}\n\nYou can reinstall dependencies or rebuild at any time.",
             "Clean Dev Caches",
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning,
@@ -707,32 +763,45 @@ public partial class MainWindow : Window
 
         if (answer != MessageBoxResult.Yes) return;
 
-        int moved = 0, failed = 0;
-        long movedBytes = 0;
+        CleanDevCachesBtn.IsEnabled = false;
+        CleanDevCachesBtn.Content = "Recycling…";
+        DevToggleSelectBtn.IsEnabled = false;
+        DevSelectAbandonedBtn.IsEnabled = false;
 
-        foreach (var cache in targets)
+        var (moved, failed, movedBytes) = await Task.Run(() =>
         {
-            try
+            int m = 0, f = 0;
+            long bytes = 0;
+            foreach (var cache in targets)
             {
-                if (!Directory.Exists(cache.Path) || Scanner.IsProtectedRoot(cache.Path))
+                try
                 {
-                    failed++;
-                    continue;
+                    if (!Directory.Exists(cache.Path) || Scanner.IsProtectedPath(cache.Path))
+                    {
+                        f++;
+                        continue;
+                    }
+                    FileSystem.DeleteDirectory(cache.Path, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin);
+                    m++;
+                    bytes += cache.Size;
                 }
-                FileSystem.DeleteDirectory(cache.Path, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin);
-                moved++;
-                movedBytes += cache.Size;
+                catch
+                {
+                    f++;
+                }
             }
-            catch
-            {
-                failed++;
-            }
-        }
+            return (m, f, bytes);
+        });
 
         _devCaches.RemoveAll(c => !Directory.Exists(c.Path));
+        if (_lastResult is not null)
+        {
+            _lastResult = _lastResult with { DevCaches = _devCaches.ToList() };
+        }
         DevCachesGrid.ItemsSource = null;
         DevCachesGrid.ItemsSource = _devCaches;
         DevCachesTab.Header = $"Dev Caches ({_devCaches.Count:N0})";
+        DevToggleSelectBtn.IsEnabled = true;
         UpdateDevCachesButtonState();
 
         ScanTimingText.Text = $"Recycled {moved:N0} dev caches ({FileEntry.FormatBytes(movedBytes)})";
@@ -774,7 +843,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void Delete_Click(object sender, RoutedEventArgs e)
+    private async void Delete_Click(object sender, RoutedEventArgs e)
     {
         var grid = CurrentGrid;
         if (grid is null) return;
@@ -784,17 +853,21 @@ public partial class MainWindow : Window
 
         var items = grid.ItemsSource as IReadOnlyList<FileEntry> ?? [];
         var selected = items.Where(f => f.Selected).ToList();
-        if (selected.Count > 0) MoveFilesToRecycleBin(selected);
+        if (selected.Count > 0) await MoveFilesToRecycleBinAsync(selected);
     }
 
-    private void MoveFilesToRecycleBin(IReadOnlyList<FileEntry> targets)
+    private async Task MoveFilesToRecycleBinAsync(IReadOnlyList<FileEntry> targets)
     {
         long total = targets.Sum(f => f.Size);
-        string preview = string.Join(Environment.NewLine, targets.Take(6).Select(f => f.Path));
+        int cautionCount = targets.Count(f => f.SafetyVerdict is "CAUTION" or "KEEP");
+        string preview = string.Join(Environment.NewLine, targets.Take(6).Select(f => $"[{f.SafetyVerdict}] {f.Path}"));
         if (targets.Count > 6) preview += Environment.NewLine + $"…and {targets.Count - 6:N0} more.";
+        string cautionNote = cautionCount > 0
+            ? $"\n\nNote: {cautionCount:N0} file(s) are marked CAUTION or KEEP (active project or newest copy)."
+            : "";
 
         var answer = MessageBox.Show(
-            $"Move {targets.Count:N0} file(s) ({FileEntry.FormatBytes(total)}) to the Windows Recycle Bin?\n\n{preview}",
+            $"Move {targets.Count:N0} file(s) ({FileEntry.FormatBytes(total)}) to the Windows Recycle Bin?\n\n{preview}{cautionNote}",
             "Move to Recycle Bin",
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning,
@@ -802,32 +875,41 @@ public partial class MainWindow : Window
 
         if (answer != MessageBoxResult.Yes) return;
 
-        int moved = 0, failed = 0;
-        long movedBytes = 0;
-        foreach (var item in targets)
-        {
-            try
-            {
-                if (!File.Exists(item.Path) || Scanner.IsProtectedPath(item.Path))
-                {
-                    failed++;
-                    continue;
-                }
+        DeleteButton.IsEnabled = false;
+        DeleteButton.Content = "Recycling…";
+        SmartCleanBtn.IsEnabled = false;
 
-                FileSystem.DeleteFile(item.Path, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin);
-                moved++;
-                movedBytes += item.Size;
-            }
-            catch
+        var (moved, failed, movedBytes) = await Task.Run(() =>
+        {
+            int m = 0, f = 0;
+            long bytes = 0;
+            foreach (var item in targets)
             {
-                failed++;
+                try
+                {
+                    if (!File.Exists(item.Path) || Scanner.IsProtectedPath(item.Path))
+                    {
+                        f++;
+                        continue;
+                    }
+
+                    FileSystem.DeleteFile(item.Path, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin);
+                    m++;
+                    bytes += item.Size;
+                }
+                catch
+                {
+                    f++;
+                }
             }
-        }
+            return (m, f, bytes);
+        });
 
         if (_lastResult is not null)
         {
             var remaining = _lastResult.Files.Where(f => File.Exists(f.Path)).ToList();
             long reclaimableBytes = Scanner.AssignDuplicateGroups(remaining);
+            Scanner.EvaluateFileSafety(remaining);
 
             _lastResult = _lastResult with
             {

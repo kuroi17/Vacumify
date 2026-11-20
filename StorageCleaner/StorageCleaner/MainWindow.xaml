@@ -107,9 +107,9 @@
             </ComboBox>
 
             <!-- 1-Click MCP Agent Integration Button -->
-            <Button x:Name="CopyMcpConfigBtn" Content="⚡ Connect AI / MCP" Click="CopyMcpConfig_Click"
+            <Button x:Name="CopyMcpConfigBtn" Content="Connect AI / MCP" Click="CopyMcpConfig_Click"
                     Style="{StaticResource SecondaryButton}" Height="34" Margin="0,14,0,0" HorizontalAlignment="Stretch"
-                    ToolTip="Copies ready-to-paste MCP config for Claude Code, Cursor, and Claude Desktop to your clipboard."/>
+                    ToolTip="Copies ready-to-paste npx vacumify-mcp config for Claude Code, Cursor, Claude Desktop, and Antigravity."/>
           </StackPanel>
         </Border>
       </Grid>
@@ -228,8 +228,8 @@
                                Foreground="#64748B" TextAlignment="Center" TextWrapping="Wrap" MaxHeight="38" MaxWidth="340" TextTrimming="CharacterEllipsis"/>
                   </StackPanel>
 
-                  <Button Grid.Row="2" x:Name="SmartCleanBtn" Content="⚡ 1-Click Clean Safe Junk" Click="SmartClean_Click" Height="40" HorizontalAlignment="Stretch"
-                          ToolTip="Safely moves redundant duplicate copies, old installers in Downloads, and crash dumps to the Windows Recycle Bin."/>
+                  <Button Grid.Row="2" x:Name="SmartCleanBtn" Content="1-Click Clean Safe Junk" Click="SmartClean_Click" Height="40" HorizontalAlignment="Stretch"
+                          ToolTip="Safely moves zero-risk redundant duplicate copies (outside active projects), old installers, and crash dumps to the Windows Recycle Bin."/>
                 </Grid>
               </Border>
 
@@ -292,7 +292,7 @@
                                  Foreground="#0F172A" Typography.NumeralAlignment="Tabular"/>
                       <Control x:Name="ForgottenSpinner" Style="{StaticResource LoadingSpinner}" Width="28" Height="28" HorizontalAlignment="Left" Visibility="Collapsed"/>
                     </Grid>
-                    <TextBlock Grid.Row="2" Text="30d+ untouched &gt;" FontSize="12.5" FontWeight="SemiBold" Foreground="{StaticResource SkyPrimary}"/>
+                    <TextBlock Grid.Row="2" x:Name="ForgottenFilterHint" Text="30d+ untouched &gt;" FontSize="12.5" FontWeight="SemiBold" Foreground="{StaticResource SkyPrimary}"/>
                   </Grid>
                 </Button>
 
@@ -310,7 +310,7 @@
                                  Foreground="#0F172A" Typography.NumeralAlignment="Tabular"/>
                       <Control x:Name="LargeSpinner" Style="{StaticResource LoadingSpinner}" Width="28" Height="28" HorizontalAlignment="Left" Visibility="Collapsed"/>
                     </Grid>
-                    <TextBlock Grid.Row="2" Text="100 MB+ &gt;" FontSize="12.5" FontWeight="SemiBold" Foreground="{StaticResource SkyPrimary}"/>
+                    <TextBlock Grid.Row="2" x:Name="LargeFilterHint" Text="100 MB+ &gt;" FontSize="12.5" FontWeight="SemiBold" Foreground="{StaticResource SkyPrimary}"/>
                   </Grid>
                 </Button>
               </Grid>
@@ -337,8 +337,13 @@
                     <ComboBoxItem Content="60 days+" Tag="60"/>
                     <ComboBoxItem Content="90 days+" Tag="90"/>
                   </ComboBox>
+                  <CheckBox x:Name="ForgottenSafeOnlyCheck" Content="Safe only" FontSize="12" Foreground="#334155" VerticalAlignment="Center" Margin="12,0,0,0"
+                            Checked="SafeOnly_Changed" Unchecked="SafeOnly_Changed"
+                            ToolTip="Show only zero-risk safe items (excludes active project and review files)."/>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
+                  <Button Content="Select safe" Click="SelectSafeForgotten_Click" Style="{StaticResource SecondaryButton}" Margin="0,0,6,0"
+                          ToolTip="Select only items marked SAFE."/>
                   <Button x:Name="ForgottenToggleSelectBtn" Content="Select all" Click="ForgottenToggleSelect_Click" Style="{StaticResource SecondaryButton}" />
                 </StackPanel>
               </Grid>
@@ -369,6 +374,18 @@
                     </DataGridTemplateColumn.CellTemplate>
                   </DataGridTemplateColumn>
 
+                  <DataGridTemplateColumn Header="Safety" Width="84" IsReadOnly="True">
+                    <DataGridTemplateColumn.CellTemplate>
+                      <DataTemplate>
+                        <Border Background="{Binding SafetyBadgeBg}" BorderBrush="{Binding SafetyBadgeBorder}" BorderThickness="1"
+                                CornerRadius="4" Padding="6,2" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{Binding SafetyReason}">
+                          <TextBlock Text="{Binding SafetyVerdict}" FontSize="10" FontWeight="SemiBold" Foreground="{Binding SafetyBadgeFg}"
+                                     FontFamily="{StaticResource MonoFont}"/>
+                        </Border>
+                      </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                  </DataGridTemplateColumn>
+
                   <DataGridTemplateColumn Header="Type" Width="82" IsReadOnly="True">
                     <DataGridTemplateColumn.CellTemplate>
                       <DataTemplate>
@@ -381,10 +398,9 @@
                     </DataGridTemplateColumn.CellTemplate>
                   </DataGridTemplateColumn>
 
-                  <DataGridTextColumn Header="Name" Binding="{Binding Name}" ElementStyle="{StaticResource FileNameCellText}" Width="210" IsReadOnly="True"/>
-                  <DataGridTextColumn Header="Size" Binding="{Binding SizeText}" ElementStyle="{StaticResource MonoCellText}" Width="90" IsReadOnly="True"/>
-                  <DataGridTextColumn Header="Last accessed" Binding="{Binding AccessedText}" ElementStyle="{StaticResource MonoCellText}" Width="140" IsReadOnly="True"/>
-                  <DataGridTextColumn Header="Modified" Binding="{Binding ModifiedText}" ElementStyle="{StaticResource MonoCellText}" Width="140" IsReadOnly="True"/>
+                  <DataGridTextColumn Header="Name" Binding="{Binding Name}" ElementStyle="{StaticResource FileNameCellText}" Width="200" IsReadOnly="True"/>
+                  <DataGridTextColumn Header="Size" Binding="{Binding SizeText}" ElementStyle="{StaticResource MonoCellText}" Width="88" IsReadOnly="True"/>
+                  <DataGridTextColumn Header="Last accessed" Binding="{Binding AccessedText}" ElementStyle="{StaticResource MonoCellText}" Width="134" IsReadOnly="True"/>
                   <DataGridTextColumn Header="Path" Binding="{Binding Path}" ElementStyle="{StaticResource MonoCellText}" Width="*" IsReadOnly="True"/>
                 </DataGrid.Columns>
               </DataGrid>
@@ -404,6 +420,8 @@
                   <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                  <Button Content="Select safe copies" Click="SelectSafeDuplicates_Click" Style="{StaticResource SecondaryButton}" Margin="0,0,6,0"
+                          ToolTip="Selects only SAFE redundant copies (skips newest original and files inside active projects)."/>
                   <Button Content="Keep newest" Click="KeepNewest_Click" Style="{StaticResource SecondaryButton}" Margin="0,0,6,0" />
                   <Button Content="Keep oldest" Click="KeepOldest_Click" Style="{StaticResource SecondaryButton}" />
                 </StackPanel>
@@ -438,6 +456,18 @@
                     </DataGridTemplateColumn.CellTemplate>
                   </DataGridTemplateColumn>
 
+                  <DataGridTemplateColumn Header="Safety" Width="84" IsReadOnly="True">
+                    <DataGridTemplateColumn.CellTemplate>
+                      <DataTemplate>
+                        <Border Background="{Binding SafetyBadgeBg}" BorderBrush="{Binding SafetyBadgeBorder}" BorderThickness="1"
+                                CornerRadius="4" Padding="6,2" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{Binding SafetyReason}">
+                          <TextBlock Text="{Binding SafetyVerdict}" FontSize="10" FontWeight="SemiBold" Foreground="{Binding SafetyBadgeFg}"
+                                     FontFamily="{StaticResource MonoFont}"/>
+                        </Border>
+                      </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                  </DataGridTemplateColumn>
+
                   <DataGridTemplateColumn Header="Type" Width="82" IsReadOnly="True">
                     <DataGridTemplateColumn.CellTemplate>
                       <DataTemplate>
@@ -450,11 +480,10 @@
                     </DataGridTemplateColumn.CellTemplate>
                   </DataGridTemplateColumn>
 
-                  <DataGridTextColumn Header="Group" Binding="{Binding DuplicateGroupId}" ElementStyle="{StaticResource MonoCellText}" Width="65" IsReadOnly="True"/>
-                  <DataGridTextColumn Header="Name" Binding="{Binding Name}" ElementStyle="{StaticResource FileNameCellText}" Width="210" IsReadOnly="True"/>
-                  <DataGridTextColumn Header="Size" Binding="{Binding SizeText}" ElementStyle="{StaticResource MonoCellText}" Width="90" IsReadOnly="True"/>
-                  <DataGridTextColumn Header="Copies" Binding="{Binding DuplicateGroupCount}" ElementStyle="{StaticResource MonoCellText}" Width="65" IsReadOnly="True"/>
-                  <DataGridTextColumn Header="Modified" Binding="{Binding ModifiedText}" ElementStyle="{StaticResource MonoCellText}" Width="140" IsReadOnly="True"/>
+                  <DataGridTextColumn Header="Group" Binding="{Binding DuplicateGroupId}" ElementStyle="{StaticResource MonoCellText}" Width="60" IsReadOnly="True"/>
+                  <DataGridTextColumn Header="Name" Binding="{Binding Name}" ElementStyle="{StaticResource FileNameCellText}" Width="200" IsReadOnly="True"/>
+                  <DataGridTextColumn Header="Size" Binding="{Binding SizeText}" ElementStyle="{StaticResource MonoCellText}" Width="88" IsReadOnly="True"/>
+                  <DataGridTextColumn Header="Copies" Binding="{Binding DuplicateGroupCount}" ElementStyle="{StaticResource MonoCellText}" Width="60" IsReadOnly="True"/>
                   <DataGridTextColumn Header="Path" Binding="{Binding Path}" ElementStyle="{StaticResource MonoCellText}" Width="*" IsReadOnly="True"/>
                 </DataGrid.Columns>
               </DataGrid>
@@ -512,6 +541,18 @@
                     </DataGridTemplateColumn.CellTemplate>
                   </DataGridTemplateColumn>
 
+                  <DataGridTemplateColumn Header="Safety" Width="84" IsReadOnly="True">
+                    <DataGridTemplateColumn.CellTemplate>
+                      <DataTemplate>
+                        <Border Background="{Binding SafetyBadgeBg}" BorderBrush="{Binding SafetyBadgeBorder}" BorderThickness="1"
+                                CornerRadius="4" Padding="6,2" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{Binding SafetyReason}">
+                          <TextBlock Text="{Binding SafetyVerdict}" FontSize="10" FontWeight="SemiBold" Foreground="{Binding SafetyBadgeFg}"
+                                     FontFamily="{StaticResource MonoFont}"/>
+                        </Border>
+                      </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                  </DataGridTemplateColumn>
+
                   <DataGridTemplateColumn Header="Type" Width="82" IsReadOnly="True">
                     <DataGridTemplateColumn.CellTemplate>
                       <DataTemplate>
@@ -526,7 +567,7 @@
 
                   <DataGridTextColumn Header="Name" Binding="{Binding Name}" ElementStyle="{StaticResource FileNameCellText}" Width="210" IsReadOnly="True"/>
                   <DataGridTextColumn Header="Size" Binding="{Binding SizeText}" ElementStyle="{StaticResource MonoCellText}" Width="90" IsReadOnly="True"/>
-                  <DataGridTextColumn Header="Modified" Binding="{Binding ModifiedText}" ElementStyle="{StaticResource MonoCellText}" Width="140" IsReadOnly="True"/>
+                  <DataGridTextColumn Header="Modified" Binding="{Binding ModifiedText}" ElementStyle="{StaticResource MonoCellText}" Width="134" IsReadOnly="True"/>
                   <DataGridTextColumn Header="Path" Binding="{Binding Path}" ElementStyle="{StaticResource MonoCellText}" Width="*" IsReadOnly="True"/>
                 </DataGrid.Columns>
               </DataGrid>
@@ -545,9 +586,11 @@
                   <ColumnDefinition Width="*"/>
                   <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="Dormant project packages &amp; build artifacts (node_modules, venvs, target, bin/obj)"
+                <TextBlock Grid.Column="0" Text="Reclaimable build caches — green SAFE folders belong to projects untouched 90d+"
                            FontSize="12" Foreground="#64748B" VerticalAlignment="Center"/>
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
+                  <Button x:Name="DevSelectAbandonedBtn" Content="Select Safe (Abandoned)" Click="DevSelectAbandoned_Click" Style="{StaticResource SecondaryButton}" Margin="0,0,6,0"
+                          ToolTip="Selects only caches in ABANDONED projects untouched for 90+ days."/>
                   <Button x:Name="DevToggleSelectBtn" Content="Select all" Click="DevToggleSelect_Click" Style="{StaticResource SecondaryButton}" Margin="0,0,8,0"/>
                   <Button x:Name="CleanDevCachesBtn" Content="Clean Selected Caches" Click="CleanDevCaches_Click" Style="{StaticResource DangerButton}"/>
                 </StackPanel>
@@ -579,7 +622,19 @@
                     </DataGridTemplateColumn.CellTemplate>
                   </DataGridTemplateColumn>
 
-                  <DataGridTemplateColumn Header="Type" Width="120" IsReadOnly="True">
+                  <DataGridTemplateColumn Header="Activity" Width="122" IsReadOnly="True">
+                    <DataGridTemplateColumn.CellTemplate>
+                      <DataTemplate>
+                        <Border Background="{Binding ActivityBadgeBg}" BorderBrush="{Binding ActivityBadgeBorder}" BorderThickness="1"
+                                CornerRadius="4" Padding="6,2" HorizontalAlignment="Left" VerticalAlignment="Center">
+                          <TextBlock Text="{Binding ActivityLabel}" FontSize="10" FontWeight="SemiBold" Foreground="{Binding ActivityBadgeFg}"
+                                     FontFamily="{StaticResource MonoFont}"/>
+                        </Border>
+                      </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                  </DataGridTemplateColumn>
+
+                  <DataGridTemplateColumn Header="Type" Width="116" IsReadOnly="True">
                     <DataGridTemplateColumn.CellTemplate>
                       <DataTemplate>
                         <Border Background="{Binding TypeBadgeBg}" BorderBrush="{Binding TypeBadgeBorder}" BorderThickness="1"
@@ -591,9 +646,8 @@
                     </DataGridTemplateColumn.CellTemplate>
                   </DataGridTemplateColumn>
 
-                  <DataGridTextColumn Header="Project" Binding="{Binding ProjectName}" ElementStyle="{StaticResource FileNameCellText}" Width="190" IsReadOnly="True"/>
-                  <DataGridTextColumn Header="Size" Binding="{Binding SizeText}" ElementStyle="{StaticResource MonoCellText}" Width="95" IsReadOnly="True"/>
-                  <DataGridTextColumn Header="Last modified" Binding="{Binding ModifiedText}" ElementStyle="{StaticResource MonoCellText}" Width="140" IsReadOnly="True"/>
+                  <DataGridTextColumn Header="Project" Binding="{Binding ProjectName}" ElementStyle="{StaticResource FileNameCellText}" Width="180" IsReadOnly="True"/>
+                  <DataGridTextColumn Header="Size" Binding="{Binding SizeText}" ElementStyle="{StaticResource MonoCellText}" Width="92" IsReadOnly="True"/>
                   <DataGridTextColumn Header="Location" Binding="{Binding Path}" ElementStyle="{StaticResource MonoCellText}" Width="*" IsReadOnly="True"/>
                 </DataGrid.Columns>
               </DataGrid>
@@ -680,6 +734,17 @@
                   <TextBlock x:Name="InspectorFilePath" Text="" FontFamily="{StaticResource MonoFont}" FontSize="11" FontWeight="Normal"
                              Foreground="#475569" TextWrapping="Wrap" LineHeight="16"/>
                 </Border>
+              </StackPanel>
+            </Border>
+
+            <!-- Safety Recommendation Card -->
+            <Border x:Name="InspectorSafetyCard" Background="#FFFBEB" BorderBrush="#FDE68A" BorderThickness="1" CornerRadius="12" Padding="14" Margin="0,0,0,12">
+              <StackPanel>
+                <Border x:Name="InspectorSafetyBadge" Background="#FFFFFF" BorderBrush="#FDE68A" BorderThickness="1" CornerRadius="4"
+                        Padding="6,2" HorizontalAlignment="Left" Margin="0,0,0,7">
+                  <TextBlock x:Name="InspectorSafetyVerdict" Text="REVIEW" FontFamily="{StaticResource MonoFont}" FontSize="10.5" FontWeight="SemiBold" Foreground="#B45309"/>
+                </Border>
+                <TextBlock x:Name="InspectorSafetyReason" Text="" FontSize="12" Foreground="#1E293B" TextWrapping="Wrap" LineHeight="17"/>
               </StackPanel>
             </Border>
 

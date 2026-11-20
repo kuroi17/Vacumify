@@ -108,9 +108,22 @@ async function parentHasAnyFile(parentDir, patterns) {
   return false;
 }
 
+function isSystemNoiseFile(fileName) {
+  if (!fileName) return true;
+  const lower = fileName.toLowerCase();
+  return (
+    lower.startsWith('ntuser.dat') ||
+    lower.startsWith('usrclass.dat') ||
+    lower === 'desktop.ini' ||
+    lower === 'thumbs.db' ||
+    lower === '.ds_store'
+  );
+}
+
 async function isDevCacheFolder(folderName, parentDir) {
   const lower = folderName.toLowerCase();
   if (lower === 'node_modules') return 'node_modules';
+  if (lower === '.next' && (await parentHasAnyFile(parentDir, ['package.json']))) return '.next';
   if (lower === 'venv' || lower === '.venv' || lower === '__pycache__') return 'Python venv';
   if (lower === '.gradle') return 'Gradle';
 
@@ -283,6 +296,7 @@ async function scanDirectory(rootPath, options = {}) {
             queue.push(fullPath);
           }
         } else if (entry.isFile()) {
+          if (isSystemNoiseFile(entry.name)) continue;
           try {
             const st = await fsp.stat(fullPath);
             bytesScanned += st.size;
@@ -389,8 +403,18 @@ async function assignDuplicateGroups(files, minDuplicateBytes, fastLargeSampling
 
 function identifySafeJunk(files) {
   const safeList = [];
+  const dirActiveCache = new Map();
 
-  // 1. Redundant duplicate copies (keep newest intact)
+  function isInActiveProject(filePath, fallbackMs) {
+    const dir = path.dirname(filePath);
+    if (dirActiveCache.has(dir)) return dirActiveCache.get(dir);
+    const act = getProjectActivity(filePath, fallbackMs);
+    const active = act.inProject && act.status === 'ACTIVE';
+    dirActiveCache.set(dir, active);
+    return active;
+  }
+
+  // 1. Redundant duplicate copies (keep newest intact, never auto-flag files inside ACTIVE projects)
   const dupGroups = new Map();
   for (const f of files) {
     if (f.duplicateGroupCount > 1) {
@@ -405,11 +429,13 @@ function identifySafeJunk(files) {
   for (const copies of dupGroups.values()) {
     copies.sort((a, b) => b.lastWriteMs - a.lastWriteMs);
     for (let i = 1; i < copies.length; i++) {
-      safeList.push(copies[i]);
+      if (!isInActiveProject(copies[i].path, copies[i].lastWriteMs)) {
+        safeList.push(copies[i]);
+      }
     }
   }
 
-  // 2. Obsolete installers & crash dumps (> 30 days untouched)
+  // 2. Obsolete installers & crash dumps (> 30 days untouched, outside ACTIVE projects)
   const cutoffMs = Date.now() - 30 * 24 * 60 * 60 * 1000;
   for (const f of files) {
     if (f.duplicateGroupCount > 1) continue;
@@ -419,7 +445,8 @@ function identifySafeJunk(files) {
       (ext === 'EXE' && (lowerName.includes('setup') || lowerName.includes('installer') || lowerName.includes('install')));
     const isCrashDump = ext === 'DMP' || (ext === 'LOG' && f.size > 20 * 1024 * 1024);
 
-    if ((isInstaller || isCrashDump) && f.lastAccessMs <= cutoffMs) {
+    const lastTouch = Math.max(f.lastAccessMs || 0, f.lastWriteMs || 0);
+    if ((isInstaller || isCrashDump) && lastTouch <= cutoffMs && !isInActiveProject(f.path, f.lastWriteMs)) {
       safeList.push(f);
     }
   }
@@ -438,12 +465,14 @@ function getProjectActivity(targetPath, fallbackLastWriteMs) {
 
   let projectRoot = current;
   let lastTouchMs = fallbackLastWriteMs || Date.now();
+  let inProject = false;
 
   try {
     for (let depth = 0; depth < 4 && current; depth++) {
       if (isProtectedRoot(current)) break;
       const gitDir = path.join(current, '.git');
       if (fs.existsSync(gitDir)) {
+        inProject = true;
         projectRoot = current;
         const headLog = path.join(gitDir, 'logs', 'HEAD');
         const gitIndex = path.join(gitDir, 'index');
@@ -463,6 +492,7 @@ function getProjectActivity(targetPath, fallbackLastWriteMs) {
         fs.existsSync(path.join(current, 'pyproject.toml'));
 
       if (hasMarker) {
+        inProject = true;
         projectRoot = current;
         lastTouchMs = fs.statSync(current).mtimeMs;
         break;
@@ -479,7 +509,7 @@ function getProjectActivity(targetPath, fallbackLastWriteMs) {
   if (daysUntouched <= 14) status = 'ACTIVE';
   else if (daysUntouched <= 90) status = 'DORMANT';
 
-  return { status, daysUntouched, projectRoot };
+  return { status, daysUntouched, projectRoot, inProject };
 }
 
 async function recycleItems(paths, dryRun = false) {
