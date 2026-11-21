@@ -26,14 +26,14 @@ Performs a high-speed disk audit using Vacumify MCP and presents a clear, decisi
    Present the result in a crisp, readable structure:
    - **Executive Summary**:
      - Total space scanned and total reclaimable space found.
-     - Breakdown by category (Dev Caches, Duplicates, Large Untouched Files).
+     - Breakdown by category (Dev Caches, Duplicates, Large Untouched Files, System Temp Scratchpads).
    - **Zero-Risk Wins**:
-     - List top 3 to 5 highest-impact safe items (abandoned build caches, exact duplicate copies, obsolete installers).
+     - List top 3 to 5 highest-impact safe items (abandoned build caches, exact duplicate copies, obsolete installers, stale temp files >48h).
      - Show exact path, size, and reason why it is safe.
    - **Review Needed**:
      - 1 to 3 items where user confirmation is recommended (e.g. large project archives or dormant work).
    - **Action Shortcuts**:
-     - Mention `/clean-junk` to recycle verified safe files to the Recycle Bin.
+     - Mention `/clean-junk` to recycle verified safe files to the Recycle Bin and purge stale temp scratchpads.
      - Mention `/dev-caches` to inspect development build caches in detail.
      - Mention `/duplicates` to inspect identical duplicate file groups.
 

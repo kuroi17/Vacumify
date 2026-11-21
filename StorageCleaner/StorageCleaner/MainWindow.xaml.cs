@@ -422,6 +422,7 @@ public partial class MainWindow : Window
             "Desktop" => Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
             "Documents" => Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
             "Videos" => Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
+            "Temp" => Path.GetTempPath(),
             _ => userHome
         };
 
@@ -674,17 +675,28 @@ public partial class MainWindow : Window
         int dumpCount = otherFiles.Count(f => f.ExtensionText is "DMP" or "LOG");
         long dumpBytes = otherFiles.Where(f => f.ExtensionText is "DMP" or "LOG").Sum(f => f.Size);
 
-        long totalBytes = safeJunk.Sum(f => f.Size);
+        var (tFiles, tDirs, tBytes, _, _) = Scanner.CleanTempFiles(48, dryRun: true);
+        long grandTotalBytes = safeJunk.Sum(f => f.Size) + tBytes;
 
-        var msg = $"Vacumify identified {safeJunk.Count:N0} zero-risk safe junk file(s) ({FileEntry.FormatBytes(totalBytes)}):\n\n" +
+        var msg = $"Vacumify identified zero-risk safe junk ({FileEntry.FormatBytes(grandTotalBytes)}):\n\n" +
                   $"- Redundant duplicate copies (outside active projects): {dupCount:N0} ({FileEntry.FormatBytes(dupBytes)})\n  Newest copy of each group is kept safe.\n" +
                   $"- Obsolete installers (>30d untouched): {installerCount:N0} ({FileEntry.FormatBytes(installerBytes)})\n" +
-                  $"- Crash dumps & large old logs: {dumpCount:N0} ({FileEntry.FormatBytes(dumpBytes)})\n\n" +
-                  $"Move all safe junk to the Windows Recycle Bin?";
+                  $"- Crash dumps & large old logs: {dumpCount:N0} ({FileEntry.FormatBytes(dumpBytes)})\n";
+
+        if (tBytes > 0)
+        {
+            msg += $"- Stale system/app temp files (>48h idle): {tFiles:N0} ({FileEntry.FormatBytes(tBytes)})\n";
+        }
+
+        msg += "\nProceed with cleaning these safe items?";
 
         var res = MessageBox.Show(msg, "1-Click Smart Clean", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes);
         if (res == MessageBoxResult.Yes)
         {
+            if (tBytes > 0)
+            {
+                await Task.Run(() => Scanner.CleanTempFiles(48, dryRun: false));
+            }
             await MoveFilesToRecycleBinAsync(safeJunk);
         }
     }

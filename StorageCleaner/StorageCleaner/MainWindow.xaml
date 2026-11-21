@@ -88,6 +88,12 @@
               <TextBlock Text="Videos" />
             </StackPanel>
           </Button>
+          <Button x:Name="QuickTempBtn" Tag="Temp" Click="QuickTarget_Click" Style="{StaticResource SidebarTargetButton}">
+            <StackPanel Orientation="Horizontal">
+              <Path Data="M19,4 H5 A2,2 0 0 0 3,6 V20 A2,2 0 0 0 5,22 H19 A2,2 0 0 0 21,20 V6 A2,2 0 0 0 19,4 Z M10,12 L14,16 M14,12 L10,16" Stroke="#0284C7" StrokeThickness="1.6" Width="15" Height="15" Stretch="Uniform" Margin="0,0,9,0"/>
+              <TextBlock Text="System Temp" />
+            </StackPanel>
+          </Button>
         </StackPanel>
 
         <!-- Tucked Scan Options -->

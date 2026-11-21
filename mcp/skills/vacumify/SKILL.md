@@ -12,12 +12,13 @@ Central command center for Vacumify storage cleaning and disk auditing tools.
 
 ## Available Slash Commands
 
-- `/audit-storage`: Full disk scan with concise executive summary and zero-risk recommendations.
+- `/audit-storage`: Full disk scan with concise executive summary, root drive triage, and zero-risk recommendations.
 - `/forgotten` (or `/forgotten-files`): Scan for files untouched for 90+ days, sorted by largest size first.
 - `/large` (or `/large-files`): Identify massive files (100 MB+) eating up storage.
 - `/duplicates`: Find identical duplicate files and separate original files from safe-to-delete copies.
-- `/dev-caches`: Scan developer project caches (`node_modules`, `.next`, `target`, `bin`, `obj`) classified by Git activity (Active, Dormant, Abandoned).
+- `/dev-caches`: Scan developer project caches (`node_modules`, `.next`, `target`, `bin`, `obj`) and global package caches (Gradle, NuGet, npm, pip, Cargo) classified by Git activity.
 - `/clean-junk`: Safely recycle confirmed zero-risk junk directly to the OS Recycle Bin.
+- `/clean-temp`: Safely purge stale OS and AppData Temp files older than 48 hours without touching active/locked processes.
 
 ## How to Run
 

@@ -15,23 +15,32 @@ Safely sweeps confirmed zero-risk junk files and moves them directly to the OS R
 1. **Target Directory**:
    - Use specified path or current workspace.
 
-2. **Identify Safe Junk**:
+2. **Identify Safe Junk & Temp Scratchpads**:
    Call the lazy MCP tool `vacumify_get_safe_junk`:
    - `ServerName`: "vacumify"
    - `ToolName`: "vacumify_get_safe_junk"
    - `Arguments`: `{"path": "<target_path>"}`
 
+   For temporary files, call `vacumify_clean_temp` with `dryRun: true`:
+   - `ServerName`: "vacumify"
+   - `ToolName`: "vacumify_clean_temp"
+   - `Arguments`: `{"olderThanHours": 48, "dryRun": true}`
+
 3. **Present Preview**:
-   - Show candidate files, size, and reason (e.g. redundant duplicate copy, obsolete temporary installer).
+   - Show candidate files, size, and reason (e.g. redundant duplicate copy, obsolete temporary installer, stale temporary files >48h).
    - If user requested preview or dry run, stop here and ask for confirmation.
 
-4. **Recycle**:
+4. **Recycle or Purge**:
    When confirmed:
-   - Call `vacumify_recycle_items`:
+   - For user junk and duplicates, call `vacumify_recycle_items`:
      - `ServerName`: "vacumify"
      - `ToolName`: "vacumify_recycle_items"
      - `Arguments`: `{"paths": ["<path1>", "<path2>"], "dryRun": false}`
-   - Report space reclaimed and confirm items were moved to the Recycle Bin (not permanently destroyed).
+   - For stale temp files, call `vacumify_clean_temp`:
+     - `ServerName`: "vacumify"
+     - `ToolName`: "vacumify_clean_temp"
+     - `Arguments`: `{"olderThanHours": 48, "dryRun": false}`
+   - Report space reclaimed and confirm items were moved to the Recycle Bin or purged safely.
 
 ## Rules
 - System critical paths are strictly protected and blocked by the tool.

@@ -325,7 +325,19 @@ public static class Scanner
             try
             {
                 string full = Path.GetFullPath(rawRoot).TrimEnd(Path.DirectorySeparatorChar);
-                if (!IsProtectedRoot(full) && seenDirectories.TryAdd(full, 0))
+                if (IsDriveRoot(full))
+                {
+                    var triageDirs = GetDriveRootTriageDirs(full);
+                    foreach (var td in triageDirs)
+                    {
+                        if (seenDirectories.TryAdd(td, 0))
+                        {
+                            canonicalRoots.Add(td);
+                            dirQueue.Enqueue(td);
+                        }
+                    }
+                }
+                else if (!IsProtectedRoot(full) && seenDirectories.TryAdd(full, 0))
                 {
                     canonicalRoots.Add(full);
                     dirQueue.Enqueue(full);
@@ -948,5 +960,170 @@ public static class Scanner
         };
 
         return (status, daysUntouched, projectRoot, inProject);
+    }
+
+    public static bool IsDriveRoot(string path)
+    {
+        try
+        {
+            string full = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar);
+            string root = Path.GetPathRoot(full)?.TrimEnd(Path.DirectorySeparatorChar) ?? "";
+            return string.Equals(full, root, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public static List<string> GetDriveRootTriageDirs(string driveRoot)
+    {
+        var dirs = new List<string>();
+        string userHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (userHome.StartsWith(driveRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            string[] hubs = ["Downloads", "Desktop", "Documents", "Videos", "Pictures", "Projects", "source"];
+            foreach (var h in hubs)
+            {
+                string p = Path.Combine(userHome, h);
+                if (Directory.Exists(p)) dirs.Add(p);
+            }
+        }
+        return dirs;
+    }
+
+    public static (int DeletedFiles, int DeletedFolders, long ReclaimedBytes, int SkippedCount, List<FileEntry> Samples) CleanTempFiles(
+        int olderThanHours = 48,
+        bool dryRun = false)
+    {
+        string tempDir = Path.GetTempPath();
+        DateTime cutoffUtc = DateTime.UtcNow.AddHours(-Math.Max(1, olderThanHours));
+        int deletedFiles = 0;
+        int deletedDirs = 0;
+        long reclaimedBytes = 0;
+        int skippedCount = 0;
+        var samples = new List<FileEntry>();
+
+        if (!Directory.Exists(tempDir))
+        {
+            return (0, 0, 0, 0, samples);
+        }
+
+        void ProcessDir(string dir)
+        {
+            try
+            {
+                var dirInfo = new DirectoryInfo(dir);
+                foreach (var file in dirInfo.EnumerateFiles())
+                {
+                    try
+                    {
+                        if (file.LastWriteTimeUtc < cutoffUtc)
+                        {
+                            long sz = file.Length;
+                            if (dryRun)
+                            {
+                                if (samples.Count < 50)
+                                {
+                                    samples.Add(new FileEntry
+                                    {
+                                        Path = file.FullName,
+                                        Name = file.Name,
+                                        Size = sz,
+                                        LastAccessUtc = file.LastAccessTimeUtc,
+                                        LastWriteUtc = file.LastWriteTimeUtc,
+                                        SafetyVerdict = "SAFE",
+                                        SafetyReason = "Stale temporary scratchpad (>48h old)"
+                                    });
+                                }
+                            }
+                            else
+                            {
+                                file.Delete();
+                            }
+                            deletedFiles++;
+                            reclaimedBytes += sz;
+                        }
+                        else
+                        {
+                            skippedCount++;
+                        }
+                    }
+                    catch
+                    {
+                        skippedCount++;
+                    }
+                }
+
+                foreach (var sub in dirInfo.EnumerateDirectories())
+                {
+                    try
+                    {
+                        ProcessDir(sub.FullName);
+                        if (sub.LastWriteTimeUtc < cutoffUtc)
+                        {
+                            if (!dryRun)
+                            {
+                                sub.Delete(false);
+                            }
+                            deletedDirs++;
+                        }
+                    }
+                    catch
+                    {
+                        // Subdirectory not empty or locked
+                    }
+                }
+            }
+            catch
+            {
+                skippedCount++;
+            }
+        }
+
+        ProcessDir(tempDir);
+        return (deletedFiles, deletedDirs, reclaimedBytes, skippedCount, samples);
+    }
+
+    public static List<DevCacheEntry> GetGlobalDevCaches()
+    {
+        var results = new List<DevCacheEntry>();
+        string userHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var globalTargets = new (string Type, string Path)[]
+        {
+            ("Gradle Cache", Path.Combine(userHome, ".gradle", "caches")),
+            ("NuGet Packages", Path.Combine(userHome, ".nuget", "packages")),
+            ("npm Cache", Path.Combine(userHome, "AppData", "Local", "npm-cache")),
+            ("pip Cache", Path.Combine(userHome, "AppData", "Local", "pip", "cache")),
+            ("Cargo Cache", Path.Combine(userHome, ".cargo", "registry", "cache"))
+        };
+
+        foreach (var (type, p) in globalTargets)
+        {
+            if (Directory.Exists(p))
+            {
+                try
+                {
+                    long sz = FastGetDirectorySize(p);
+                    if (sz > 10L * 1024 * 1024)
+                    {
+                        var di = new DirectoryInfo(p);
+                        int daysUntouched = Math.Max(0, (int)(DateTime.UtcNow - di.LastWriteTimeUtc).TotalDays);
+                        results.Add(new DevCacheEntry
+                        {
+                            Path = p,
+                            ProjectName = "Global Environment",
+                            CacheType = type,
+                            Size = sz,
+                            LastModifiedUtc = di.LastWriteTimeUtc,
+                            ActivityStatus = "GLOBAL_STORE",
+                            DaysUntouched = daysUntouched
+                        });
+                    }
+                }
+                catch { }
+            }
+        }
+        return results;
     }
 }

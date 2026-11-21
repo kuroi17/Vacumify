@@ -97,9 +97,31 @@ const TOOLS = [
         olderThanDays: {
           type: 'integer',
           description: 'Optional filter: only return caches in projects untouched for at least N days.'
+        },
+        includeGlobalCaches: {
+          type: 'boolean',
+          description: 'Include machine-wide developer package caches (Gradle, NuGet, npm, pip, Cargo) (default: true).'
         }
       },
       required: ['path']
+    }
+  },
+  {
+    name: 'vacumify_clean_temp',
+    description:
+      'Safely purge or preview stale temporary files older than a specified age (default: 48 hours) from OS and AppData Temp directories without touching active/locked files or recent session scratchpads.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        olderThanHours: {
+          type: 'integer',
+          description: 'Minimum age in hours for temporary files to be purged (default: 48).'
+        },
+        dryRun: {
+          type: 'boolean',
+          description: 'If true, preview reclaimable space without deleting files (default: false).'
+        }
+      }
     }
   },
   {
@@ -464,6 +486,11 @@ async function handleGetDevCaches(args) {
     caches = caches.filter((c) => c.daysUntouched >= olderThanDays);
   }
 
+  if (args.includeGlobalCaches !== false) {
+    const globalCaches = await scanner.getGlobalDevCaches();
+    caches.push(...globalCaches);
+  }
+
   caches.sort((a, b) => b.size - a.size);
   const totalBytes = caches.reduce((acc, c) => acc + c.size, 0);
 
@@ -514,6 +541,15 @@ async function handleRecycleItems(args) {
   }
   const dryRun = Boolean(args.dryRun);
   return await scanner.recycleItems(args.paths, dryRun);
+}
+
+async function handleCleanTemp(args) {
+  const olderThanHours =
+    args.olderThanHours !== undefined && args.olderThanHours !== null
+      ? Math.max(1, Number(args.olderThanHours))
+      : 48;
+  const dryRun = Boolean(args.dryRun);
+  return await scanner.cleanTempFiles({ olderThanHours, dryRun });
 }
 
 function getPromptResponse(name, args = {}) {
@@ -669,6 +705,8 @@ async function handleRequest(msg) {
             data = await handleGetSafeJunk(args);
           } else if (toolName === 'vacumify_recycle_items') {
             data = await handleRecycleItems(args);
+          } else if (toolName === 'vacumify_clean_temp') {
+            data = await handleCleanTemp(args);
           } else {
             sendError(id, -32601, `Unknown tool: ${toolName}`);
             return;

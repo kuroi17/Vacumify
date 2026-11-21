@@ -174,9 +174,36 @@ public static class McpServer
                         {
                             ["type"] = "number",
                             ["description"] = "Optional minimum days since last modified (e.g. 30, 60). Defaults to 0 (all caches)."
+                        },
+                        ["includeGlobalCaches"] = new JsonObject
+                        {
+                            ["type"] = "boolean",
+                            ["description"] = "Include machine-wide developer package caches (Gradle, NuGet, npm, pip, Cargo) (default: true)"
                         }
                     },
                     ["required"] = new JsonArray { "path" }
+                }
+            },
+            new JsonObject
+            {
+                ["name"] = "vacumify_clean_temp",
+                ["description"] = "Safely purges or previews stale temporary files older than a specified age (default: 48 hours) from Windows and AppData Temp directories without touching active/locked files or recent session scratchpads.",
+                ["inputSchema"] = new JsonObject
+                {
+                    ["type"] = "object",
+                    ["properties"] = new JsonObject
+                    {
+                        ["olderThanHours"] = new JsonObject
+                        {
+                            ["type"] = "integer",
+                            ["description"] = "Minimum age in hours for temporary files to be purged (default: 48)"
+                        },
+                        ["dryRun"] = new JsonObject
+                        {
+                            ["type"] = "boolean",
+                            ["description"] = "If true, simulates the action without deleting files (default: false)"
+                        }
+                    }
                 }
             },
             new JsonObject
@@ -395,6 +422,7 @@ public static class McpServer
                 "vacumify_get_dev_caches" => ExecuteGetDevCaches(arguments),
                 "vacumify_get_safe_junk" => ExecuteGetSafeJunk(arguments),
                 "vacumify_recycle_items" => ExecuteRecycleItems(arguments),
+                "vacumify_clean_temp" => ExecuteCleanTemp(arguments),
                 _ => throw new InvalidOperationException($"Unknown tool: {toolName}")
             };
 
@@ -595,6 +623,13 @@ public static class McpServer
         }
 
         var cacheList = filtered.ToList();
+        bool includeGlobal = !args.TryGetProperty("includeGlobalCaches", out var ig) || ig.GetBoolean();
+        if (includeGlobal)
+        {
+            var globals = Scanner.GetGlobalDevCaches();
+            cacheList.AddRange(globals);
+        }
+
         var cachesJson = cacheList.Select(c =>
         {
             var activity = Scanner.GetProjectActivity(c.Path, c.LastModifiedUtc);
@@ -764,6 +799,40 @@ public static class McpServer
         };
 
         return res.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private static string ExecuteCleanTemp(JsonElement args)
+    {
+        int olderThanHours = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("olderThanHours", out var oth) && oth.TryGetInt32(out var othv) ? Math.Max(1, othv) : 48;
+        bool dryRun = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("dryRun", out var dr) && dr.GetBoolean();
+
+        var (deletedFiles, deletedFolders, reclaimedBytes, skippedCount, samples) = Scanner.CleanTempFiles(olderThanHours, dryRun);
+
+        var response = new JsonObject
+        {
+            ["dryRun"] = dryRun,
+            ["olderThanHours"] = olderThanHours,
+            ["deletedFiles"] = deletedFiles,
+            ["deletedFolders"] = deletedFolders,
+            ["reclaimedBytes"] = reclaimedBytes,
+            ["reclaimedFormatted"] = FileEntry.FormatBytes(reclaimedBytes),
+            ["skippedCount"] = skippedCount
+        };
+
+        if (dryRun && samples.Count > 0)
+        {
+            var sampleArray = samples.Select(s => new JsonObject
+            {
+                ["path"] = s.Path,
+                ["name"] = s.Name,
+                ["size"] = s.Size,
+                ["sizeFormatted"] = s.SizeText,
+                ["lastWrite"] = s.ModifiedText
+            }).ToArray();
+            response["sampleCandidates"] = new JsonArray(sampleArray);
+        }
+
+        return response.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
     }
 
     private static JsonObject CreateErrorResponse(JsonElement id, int code, string message)

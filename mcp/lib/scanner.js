@@ -232,6 +232,29 @@ async function mapConcurrent(items, limit, fn) {
   return results;
 }
 
+function isDriveRoot(targetPath) {
+  try {
+    const resolved = path.resolve(targetPath);
+    const parsed = path.parse(resolved);
+    return resolved.toLowerCase() === parsed.root.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
+function getDriveRootTriageDirs(rootPath) {
+  const triage = [];
+  const home = os.homedir();
+  if (home.toLowerCase().startsWith(rootPath.toLowerCase())) {
+    const standardHubs = ['Downloads', 'Desktop', 'Documents', 'Videos', 'Pictures', 'Projects', 'source'];
+    for (const hub of standardHubs) {
+      const full = path.join(home, hub);
+      if (fs.existsSync(full)) triage.push(full);
+    }
+  }
+  return triage;
+}
+
 async function scanDirectory(rootPath, options = {}) {
   const {
     includeHidden = false,
@@ -249,8 +272,16 @@ async function scanDirectory(rootPath, options = {}) {
   const errors = [];
   let bytesScanned = 0;
 
-  const queue = [resolvedRoot];
-  const seen = new Set([resolvedRoot.toLowerCase()]);
+  let queue;
+  let seen;
+  if (isDriveRoot(resolvedRoot)) {
+    const triage = getDriveRootTriageDirs(resolvedRoot);
+    queue = triage.filter((d) => fs.existsSync(d));
+    seen = new Set(queue.map((d) => d.toLowerCase()));
+  } else {
+    queue = [resolvedRoot];
+    seen = new Set([resolvedRoot.toLowerCase()]);
+  }
 
   while (queue.length > 0) {
     // Process batch concurrently
@@ -625,11 +656,149 @@ foreach ($item in $items) {
   };
 }
 
+async function cleanTempFiles(options = {}) {
+  const {
+    olderThanHours = 48,
+    dryRun = false,
+    targetDir = null
+  } = options;
+
+  const tempDirs = targetDir
+    ? [path.resolve(targetDir)]
+    : [
+        process.env.TEMP || os.tmpdir(),
+        process.env.TMP,
+        process.platform === 'win32' ? 'C:\\Windows\\Temp' : null
+      ].filter(Boolean).map((p) => path.resolve(p));
+
+  const uniqueDirs = Array.from(new Set(tempDirs.map((d) => d.toLowerCase()))).map((lower) =>
+    tempDirs.find((d) => d.toLowerCase() === lower)
+  );
+
+  const cutoff = Date.now() - (Number(olderThanHours) * 60 * 60 * 1000);
+
+  let deletedFiles = 0;
+  let deletedFolders = 0;
+  let reclaimedBytes = 0;
+  let skippedCount = 0;
+  const sampleCandidates = [];
+
+  for (const dir of uniqueDirs) {
+    if (!fs.existsSync(dir)) continue;
+
+    function processDir(currentDir) {
+      let entries;
+      try {
+        entries = fs.readdirSync(currentDir, { withFileTypes: true });
+      } catch {
+        skippedCount++;
+        return;
+      }
+
+      for (const entry of entries) {
+        if (entry.isSymbolicLink()) continue;
+        const fullPath = path.join(currentDir, entry.name);
+
+        try {
+          if (entry.isDirectory()) {
+            processDir(fullPath);
+            try {
+              const st = fs.statSync(fullPath);
+              if (st.mtimeMs < cutoff) {
+                if (!dryRun) {
+                  fs.rmdirSync(fullPath);
+                }
+                deletedFolders++;
+              }
+            } catch {
+              // Directory not empty or locked
+            }
+          } else if (entry.isFile()) {
+            const st = fs.statSync(fullPath);
+            if (st.mtimeMs < cutoff) {
+              if (dryRun) {
+                if (sampleCandidates.length < 50) {
+                  sampleCandidates.push({
+                    path: fullPath,
+                    name: entry.name,
+                    size: st.size,
+                    sizeFormatted: formatBytes(st.size),
+                    lastWrite: formatDate(st.mtimeMs)
+                  });
+                }
+              } else {
+                fs.unlinkSync(fullPath);
+              }
+              deletedFiles++;
+              reclaimedBytes += st.size;
+            } else {
+              skippedCount++;
+            }
+          }
+        } catch {
+          skippedCount++;
+        }
+      }
+    }
+
+    processDir(dir);
+  }
+
+  return {
+    dryRun,
+    olderThanHours,
+    targetPaths: uniqueDirs,
+    deletedFiles,
+    deletedFolders,
+    reclaimedBytes,
+    reclaimedFormatted: formatBytes(reclaimedBytes),
+    skippedCount,
+    sampleCandidates: dryRun ? sampleCandidates : undefined
+  };
+}
+
+async function getGlobalDevCaches() {
+  const home = os.homedir();
+  const globalTargets = [
+    { type: 'Gradle Cache', path: path.join(home, '.gradle', 'caches') },
+    { type: 'NuGet Packages', path: path.join(home, '.nuget', 'packages') },
+    { type: 'npm Cache', path: process.platform === 'win32' ? path.join(home, 'AppData', 'Local', 'npm-cache') : path.join(home, '.npm') },
+    { type: 'pip Cache', path: process.platform === 'win32' ? path.join(home, 'AppData', 'Local', 'pip', 'cache') : path.join(home, '.cache', 'pip') },
+    { type: 'Cargo Cache', path: path.join(home, '.cargo', 'registry', 'cache') }
+  ];
+
+  const results = [];
+  for (const t of globalTargets) {
+    if (fs.existsSync(t.path)) {
+      try {
+        const size = await fastGetDirectorySize(t.path);
+        if (size > 10 * 1024 * 1024) { // > 10 MB
+          const st = fs.statSync(t.path);
+          results.push({
+            path: t.path,
+            projectName: 'Global Environment',
+            cacheType: t.type,
+            size,
+            sizeFormatted: formatBytes(size),
+            lastModified: formatDate(st.mtimeMs),
+            activityStatus: 'GLOBAL_STORE',
+            daysUntouched: Math.max(0, Math.floor((Date.now() - st.mtimeMs) / (24 * 60 * 60 * 1000))),
+            projectRoot: t.path
+          });
+        }
+      } catch {}
+    }
+  }
+  return results;
+}
+
 module.exports = {
   scanDirectory,
   identifySafeJunk,
   getProjectActivity,
   recycleItems,
+  cleanTempFiles,
+  getGlobalDevCaches,
   formatBytes,
   formatDate
 };
