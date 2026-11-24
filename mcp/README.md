@@ -1,5 +1,7 @@
 # Vacumify Model Context Protocol (MCP) Server (`vacumify-mcp`)
 
+[![kuroi17/vacumify MCP server](https://glama.ai/mcp/servers/kuroi17/vacumify/badges/score.svg)](https://glama.ai/mcp/servers/kuroi17/vacumify)
+
 Connect **Vacumify** directly to AI agent environments such as **Claude Code**, **Claude Desktop**, **Cursor**, **Windsurf**, and **Google Antigravity**.
 
 Runs completely standalone in pure Node.js (zero dependencies, zero `.exe` downloads) over `stdio` on **Windows, macOS, and Linux** — no desktop GUI installation required.

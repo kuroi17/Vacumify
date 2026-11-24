@@ -9,6 +9,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011-2563EB?style=flat-square)](https://github.com/kuroi17/Vacumify)
 [![.NET](https://img.shields.io/badge/.NET-10%20WPF-1D4ED8?style=flat-square)](https://dotnet.microsoft.com/)
 [![MCP](https://img.shields.io/badge/MCP-Enabled-9333EA?style=flat-square)](https://modelcontextprotocol.io/)
+[![kuroi17/vacumify MCP server](https://glama.ai/mcp/servers/kuroi17/vacumify/badges/score.svg)](https://glama.ai/mcp/servers/kuroi17/vacumify)
 [![Privacy](https://img.shields.io/badge/Privacy-100%25%20Local%20%E2%80%A2%20No%20Telemetry-059669?style=flat-square)](#safety--privacy)
 
 </div>
